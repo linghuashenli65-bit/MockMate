@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# Environment
+.env
+backend/data/config.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+backend/data/mockmate.log
+
+# Audio files
+backend/data/audios/*.mp3
+
+# Session data (JSON fallback)
+backend/data/sessions/*.json
+
+# Research cache
+backend/data/research_cache.json

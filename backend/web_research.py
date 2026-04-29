@@ -1,0 +1,253 @@
+"""网络信息搜集模块
+
+搜索招聘网站的岗位要求和社区平台的面经，
+生成结构化的岗位画像供面试引擎使用。
+"""
+import asyncio
+import json
+import logging
+import random
+import re
+from typing import Optional
+
+import httpx
+from bs4 import BeautifulSoup
+
+from .ai_client import AIClient
+
+logger = logging.getLogger(__name__)
+
+# 搜索来源配置
+SEARCH_SOURCES = {
+    "jobs": [
+        "{position} 岗位要求 技能要求",
+        "{position} JD 职位描述 任职要求",
+    ],
+    "interviews": [
+        "{position} 面经 面试经验",
+        "{position} 面试题 小红书",
+        "{position} 面试经验 知乎",
+        "{position} 面试 贴吧",
+        "{position} 面经 技术栈 面试问题",
+    ],
+}
+
+# 搜索引擎配置
+# DuckDuckGo 在中国可能被屏蔽，所以用 Bing 作为主要搜索引擎
+SEARCH_ENGINES = [
+    {
+        "name": "bing",
+        "url": "https://www.bing.com/search",
+        "method": "GET",
+        "param_field": "q",
+        "result_selector": ".b_algo",
+        "snippet_selector": ".b_caption p",
+    },
+    {
+        "name": "duckduckgo",
+        "url": "https://html.duckduckgo.com/html/",
+        "method": "POST",
+        "data_field": "q",
+        "result_selector": ".result",
+        "snippet_selector": ".result__snippet",
+    },
+]
+
+# 轮换 User-Agent，降低被拦截概率
+USER_AGENTS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:126.0) Gecko/20100101 Firefox/126.0",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
+]
+
+HTTP_TIMEOUT = 15.0
+MAX_RETRIES = 2
+
+
+class WebResearch:
+    """网络信息搜集 + 岗位画像生成"""
+
+    def __init__(self, ai_client: AIClient):
+        self.ai = ai_client
+        self._http = httpx.AsyncClient(
+            timeout=HTTP_TIMEOUT,
+            follow_redirects=True,
+            limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
+            trust_env=False,  # 不读系统代理，直连搜索
+        )
+        self._http.headers.update({
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        })
+        self._user_agent_index = random.randint(0, len(USER_AGENTS) - 1)
+
+    def _rotate_user_agent(self):
+        """轮换 User-Agent"""
+        self._user_agent_index = (self._user_agent_index + 1) % len(USER_AGENTS)
+        self._http.headers["User-Agent"] = USER_AGENTS[self._user_agent_index]
+
+    async def search_position(self, position: str) -> dict:
+        """搜索岗位信息 + 面经，生成结构化的岗位画像。"""
+        logger.info(f"开始搜索岗位信息: {position}")
+
+        # 并行搜索岗位要求和面经
+        job_results, interview_results = await asyncio.gather(
+            self._search_all("jobs", position),
+            self._search_all("interviews", position),
+        )
+
+        profile = await self._generate_profile(position, job_results, interview_results)
+        return profile
+
+    async def _search_all(self, category: str, position: str) -> list[str]:
+        """并行搜索一类关键词（岗位要求 / 面经）"""
+        queries = [
+            t.replace("{position}", position)
+            for t in SEARCH_SOURCES.get(category, [])
+        ]
+        tasks = [self._search_with_fallback(q) for q in queries]
+        results_list = await asyncio.gather(*tasks, return_exceptions=True)
+
+        results = []
+        for q, r in zip(queries, results_list):
+            if isinstance(r, list):
+                results.extend(r)
+                logger.info(f"  {category}搜索完成: {q} ({len(r)} 条)")
+            else:
+                logger.warning(f"  {category}搜索失败 [{q}]: {r}")
+        return results
+
+    async def _search_with_fallback(self, query: str, max_results: int = 5) -> list[str]:
+        """多搜索引擎搜索，逐个尝试直到拿到结果"""
+        for engine in SEARCH_ENGINES:
+            snippets = await self._search_engine(engine, query, max_results)
+            if snippets:
+                return snippets
+            logger.info(f"{engine['name']} 无结果，尝试下一个搜索引擎: {query}")
+        return []
+
+    async def _search_engine(self, engine: dict, query: str, max_results: int) -> list[str]:
+        """使用指定搜索引擎搜索"""
+        for attempt in range(MAX_RETRIES):
+            self._rotate_user_agent()
+            try:
+                if engine["method"] == "POST":
+                    resp = await self._http.post(
+                        engine["url"],
+                        data={engine["data_field"]: query},
+                        timeout=HTTP_TIMEOUT,
+                    )
+                else:
+                    resp = await self._http.get(
+                        engine["url"],
+                        params={engine["param_field"]: query},
+                        timeout=HTTP_TIMEOUT,
+                    )
+                logger.info(f"  {engine['name']} 返回状态码 {resp.status_code}")
+                snippets = self._parse_results(resp.text, engine, max_results)
+                logger.info(f"  {engine['name']} 解析到 {len(snippets)} 条结果")
+                return snippets
+            except httpx.TimeoutException:
+                logger.warning(f"  {engine['name']} 超时 (尝试 {attempt + 1}/{MAX_RETRIES}): {query}")
+            except httpx.HTTPStatusError as e:
+                logger.warning(f"  {engine['name']} HTTP {e.response.status_code} (尝试 {attempt + 1}/{MAX_RETRIES}): {query}")
+            except Exception as e:
+                logger.warning(f"  {engine['name']} 错误: {e} (尝试 {attempt + 1}/{MAX_RETRIES})")
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(1)
+        return []
+
+    def _parse_results(self, html: str, engine: dict, max_results: int) -> list[str]:
+        """从 HTML 中解析搜索结果"""
+        soup = BeautifulSoup(html, "lxml")
+        snippets = []
+        for result in soup.select(engine["result_selector"])[:max_results]:
+            snippet_el = result.select_one(engine["snippet_selector"])
+            if snippet_el:
+                text = snippet_el.get_text(strip=True)
+                if text:
+                    snippets.append(text)
+        return snippets
+
+    async def _generate_profile(self, position: str, job_results: list[str], interview_results: list[str]) -> dict:
+        """用 AI 生成结构化岗位画像（主要依赖 AI 知识库，搜索结果为辅助）"""
+        # 如果搜索有结果，作为参考
+        hint = ""
+        if job_results:
+            hint += "\n=== 从招聘网站搜集到的岗位要求 ===\n" + "\n".join(job_results[:10])
+        if interview_results:
+            hint += "\n=== 从社区搜集到的面经信息 ===\n" + "\n".join(interview_results[:10])
+
+        prompt = f"""你是一个资深的招聘专家和面试官。请为目标岗位生成详细的"岗位画像"。
+
+目标岗位: {position}
+
+请基于你的专业知识回答，以下网络搜索结果仅供参考（可能为空）：{hint}
+
+输出 JSON 格式（必须包含以下所有字段）：
+
+{{
+  "position": "岗位名称",
+  "summary": "岗位概述（2-3句话，包括该岗位的核心职责和发展方向）",
+  "required_skills": ["必备技能1", "必备技能2", ...],
+  "nice_to_have": ["加分技能1", ...],
+  "tech_stack": ["核心技术1", "技术2", ...],
+  "responsibilities": ["工作职责1", ...],
+  "common_interview_topics": [
+    "常见面试题1（附考察点说明）",
+    "常见面试题2（附考察点说明）",
+    "常见面试题3（附考察点说明）"
+  ],
+  "interview_focus": ["面试重点考察方向1", ...],
+  "difficulty": "junior/mid/senior",
+  "years_experience": "X年经验",
+  "industry_insights": "该岗位的市场趋势和薪资概况"
+}}
+
+要求：
+- 直接基于你的知识生成，如果网络搜索结果为空也完全没关系
+- 所有字段用中文填写
+- common_interview_topics 写5-8个真实具体的面试题
+- interview_focus 写3-5个考察重点
+- 内容要具体、有参考价值，不要泛泛而谈"""
+
+        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=4096)
+        if not result:
+            return self._fallback_profile(position)
+
+        # 尝试解析 JSON
+        result = result.strip()
+        if result.startswith("```"):
+            result = result.split("\n", 1)[-1]
+            result = result.rsplit("```", 1)[0]
+        result = result.strip()
+
+        try:
+            return json.loads(result)
+        except json.JSONDecodeError:
+            match = re.search(r'\{[\s\S]*\}', result)
+            if match:
+                try:
+                    return json.loads(match.group())
+                except json.JSONDecodeError:
+                    pass
+            return self._fallback_profile(position, result)
+
+    def _fallback_profile(self, position: str, raw_text: str = "") -> dict:
+        return {
+            "position": position,
+            "summary": "基于 AI 知识库生成的岗位画像（网络搜索未返回有效数据）",
+            "required_skills": [],
+            "nice_to_have": [],
+            "tech_stack": [],
+            "responsibilities": [],
+            "common_interview_topics": [],
+            "interview_focus": [],
+            "difficulty": "mid",
+            "years_experience": "1-3年",
+            "industry_insights": "",
+            "_raw": raw_text[:500] if raw_text else "",
+        }
+
+    async def close(self):
+        await self._http.aclose()
