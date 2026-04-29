@@ -45,6 +45,8 @@ DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEEPSEEK_MODEL_REASONER = "deepseek-v4-flash"
+DEEPSEEK_MODEL_CHAT = "deepseek-v4-flash"
+DEEPSEEK_MODEL_WRITTEN_EVAL = "deepseek-chat"
 
 # 默认 AI 提供商: "mimo" 或 "deepseek"
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "mimo")

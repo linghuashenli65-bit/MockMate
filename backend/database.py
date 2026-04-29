@@ -5,6 +5,7 @@
 """
 import json
 import logging
+import warnings
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -54,7 +55,9 @@ class Database:
         """初始化数据库表"""
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("""
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    await cur.execute("""
                     CREATE TABLE IF NOT EXISTS sessions (
                         id VARCHAR(12) PRIMARY KEY,
                         position VARCHAR(255) DEFAULT '',

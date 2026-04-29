@@ -4,7 +4,7 @@ from typing import Optional
 
 import httpx
 
-from .config import DEEPSEEK_API_BASE, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_MODEL_REASONER
+from .config import DEEPSEEK_API_BASE, DEEPSEEK_API_KEY, DEEPSEEK_MODEL, DEEPSEEK_MODEL_REASONER, DEEPSEEK_MODEL_CHAT, DEEPSEEK_MODEL_WRITTEN_EVAL
 
 logger = logging.getLogger(__name__)
 
@@ -56,8 +56,12 @@ class DeepSeekClient:
         return result
 
     async def chat_standard(self, messages: list, **kwargs) -> Optional[str]:
-        """调用标准模型"""
-        return await self.chat(DEEPSEEK_MODEL, messages, **kwargs)
+        """调用标准 chat 模型"""
+        return await self.chat(DEEPSEEK_MODEL_CHAT, messages, **kwargs)
+
+    async def written_eval(self, messages: list, **kwargs) -> Optional[str]:
+        """调用笔试判卷专用模型（更快）"""
+        return await self.chat(DEEPSEEK_MODEL_WRITTEN_EVAL, messages, **kwargs)
 
     async def extract_text_from_image(self, image_bytes: bytes) -> Optional[str]:
         """DeepSeek 不支持多模态"""

@@ -18,10 +18,13 @@ logger = logging.getLogger(__name__)
 ROUND_CONFIG = {
     "written": {
         "name": "笔试",
-        "desc": "基础题 + 选择题/填空题/简答题，考察知识广度",
-        "prompt_extra": """这是笔试环节，请出选择题、填空题或简答题。
+        "desc": "选择题 + 判断题，考察知识广度",
+        "prompt_extra": """这是笔试环节，只出选择题（四选一）和判断题。
+- 选择题提供四个选项（A/B/C/D）
+- 判断题提供"A. 正确"/"B. 错误"两个选项
+- 必须标注正确答案 correct_answer
 - 题目要有明确的标准答案
-- 可包含代码补全、概念选择、SQL 编写等
+- 用户只需选择答案，不需要文字解释
 - 难度：前几题 easy，后面逐渐 medium""",
     },
     "tech_1": {
@@ -64,24 +67,36 @@ class InterviewEngine:
         round_name: str = DEFAULT_ROUND, question_type: str = "mixed",
     ) -> dict:
         """生成第一道面试题"""
-        prompt = self._build_opening_prompt(resume, profile, round_name, question_type)
-        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=1024)
-        return self._parse_question(result, 1)
+        if round_name == "written":
+            prompt = self._build_opening_prompt_written(resume, profile)
+            result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
+        else:
+            prompt = self._build_opening_prompt(resume, profile, round_name, question_type)
+            result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=1024)
+        return self._parse_question(result, 1, round_name)
 
     async def generate_next_question(
         self, history: list[dict], resume: str, profile: dict,
         round_name: str = DEFAULT_ROUND,
     ) -> dict:
         """根据对话历史生成下一题"""
-        prompt = self._build_next_prompt(history, resume, profile, round_name)
-        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=1024)
+        if round_name == "written":
+            prompt = self._build_next_prompt_written(history, resume, profile)
+            result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
+        else:
+            prompt = self._build_next_prompt(history, resume, profile, round_name)
+            result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=1024)
         question_num = len(history) + 1
-        return self._parse_question(result, question_num)
+        return self._parse_question(result, question_num, round_name)
 
-    async def evaluate_answer(self, question: str, answer: str, context: dict) -> dict:
+    async def evaluate_answer(self, question: str, answer: str, context: dict, round_name: str = "") -> dict:
         """评估用户的回答"""
+        if round_name == "written":
+            prompt = self._build_written_evaluation_prompt(question, answer)
+            result = await self.ai.written_eval([{"role": "user", "content": prompt}], max_tokens=1024)
+            return self._parse_written_evaluation(result)
         prompt = self._build_evaluation_prompt(question, answer, context)
-        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=1024)
+        result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
         return self._parse_evaluation(result)
 
     async def end_interview(self, history: list[dict], profile: dict) -> dict:
@@ -115,6 +130,27 @@ class InterviewEngine:
 
 只输出 JSON:
 {{"question": "题目", "type": "技术/行为/设计", "difficulty": "easy", "topic": "考察主题", "expected_points": ["要点1", "要点2"]}}"""
+
+    def _build_opening_prompt_written(self, resume: str, profile: dict) -> str:
+        rc = self._get_round_config("written")
+        profile_str = json.dumps(profile, ensure_ascii=False, indent=2)
+        return f"""你是一个专业的笔试考官，正在出{rc['name']}。这是第 1 题。
+
+== 候选人简历 ==
+{resume[:3000]}
+
+== 目标岗位画像 ==
+{profile_str}
+
+{rc['prompt_extra']}
+
+难度要求：第1题必须简单热身，考察基础概念。
+
+绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
+每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
+
+只输出 JSON:
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "A"}}"""
 
     def _build_next_prompt(self, history: list[dict], resume: str, profile: dict, round_name: str) -> str:
         rc = self._get_round_config(round_name)
@@ -166,6 +202,67 @@ class InterviewEngine:
 只输出 JSON:
 {{"question": "题目", "type": "技术/行为/设计", "difficulty": "easy/medium/hard", "topic": "考察主题", "expected_points": ["要点1", "要点2"], "reason": "为什么出这题"}}"""
 
+    def _build_next_prompt_written(self, history: list[dict], resume: str, profile: dict) -> str:
+        rc = self._get_round_config("written")
+        history_str = ""
+        for i, h in enumerate(history, 1):
+            score_str = json.dumps(h.get("score", {}), ensure_ascii=False)
+            history_str += f"\n第{i}题: {h['q']}\n用户答案: {h['a'][:200]}\n评分: {score_str}\n"
+
+        current_q = len(history) + 1
+
+        if current_q <= 2:
+            expected_difficulty = "easy"
+            difficulty_hint = "基础题"
+        elif current_q <= 4:
+            expected_difficulty = "easy 或 medium"
+            difficulty_hint = "过渡到中等难度"
+        elif current_q <= 6:
+            expected_difficulty = "medium"
+            difficulty_hint = "中等难度"
+        else:
+            expected_difficulty = "medium 或 hard"
+            difficulty_hint = "较难题目"
+
+        return f"""你是一个专业的笔试考官，正在出{rc['name']}。这是第 {current_q} 题。
+
+== 候选人简历 ==
+{resume[:2000]}
+
+== 岗位画像 ==
+{json.dumps(profile, ensure_ascii=False, indent=2)[:1000]}
+
+== 笔试历史 ==
+{history_str}
+
+{rc['prompt_extra']}
+
+难度要求：{expected_difficulty}（{difficulty_hint}）
+
+动态调整：
+- 上一题正确 → 加深难度
+- 上一题错误 → 换知识点，保持或降低难度
+- 不要连续考同一个 topic
+
+注意：题目要结合候选人简历中的技能栈
+
+绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
+每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
+
+只输出 JSON:
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy/medium/hard", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "A"}}"""
+
+    def _build_written_evaluation_prompt(self, question: str, answer: str) -> str:
+        return f"""你是一个笔试判卷老师。请判断答案是否正确并给出解析。
+
+题目信息（含选项和正确答案）:
+{question[:2000]}
+
+用户选择的答案: {answer[:200]}
+
+只输出 JSON:
+{{"correct": true, "correct_answer": "A", "explanation": "解析（2-3句，说明为什么对/错）", "score": 10}}"""
+
     def _build_evaluation_prompt(self, question: str, answer: str, context: dict) -> str:
         return f"""你是一个专业的面试官，请严格按以下 JSON 格式评估候选人的回答，不要输出其他内容。
 
@@ -208,23 +305,98 @@ class InterviewEngine:
 
     # ==================== 解析器 ====================
 
-    def _parse_question(self, raw: Optional[str], num: int) -> dict:
+    def _parse_question(self, raw: Optional[str], num: int, round_name: str = "") -> dict:
         if not raw:
-            return {"question": f"请介绍一下你在最近项目中的技术选型和架构设计。", "type": "技术", "difficulty": "medium", "topic": "项目经验", "expected_points": []}
+            return self._make_fallback(num, round_name)
         try:
             data = json.loads(raw)
             if "question" in data:
+                if round_name == "written":
+                    return self._validate_written_question(data, num)
                 return data
         except json.JSONDecodeError:
             match = re.search(r'\{.*\}', raw, re.DOTALL)
             if match:
                 try:
-                    return json.loads(match.group())
+                    data = json.loads(match.group())
+                    if "question" in data:
+                        if round_name == "written":
+                            return self._validate_written_question(data, num)
+                        return data
                 except json.JSONDecodeError:
                     pass
         lines = [l.strip() for l in raw.split("\n") if l.strip() and not l.startswith("{") and not l.startswith("}")]
+        if round_name == "written":
+            return self._make_written_fallback(num)
         question_text = lines[0] if lines else f"请结合你的项目经验，谈谈你在 {num} 个项目中的技术挑战和解决方案。"
         return {"question": question_text, "type": "技术", "difficulty": "medium", "topic": "综合", "expected_points": []}
+
+    def _validate_written_question(self, data: dict, num: int) -> dict:
+        """校验笔试题目必须包含 options 字段，不符合则返回备选题"""
+        options = data.get("options")
+        if options and isinstance(options, dict) and len(options) >= 2:
+            return data
+        logger.warning(f"笔试第{num}题缺少 options 字段，使用备选题。原始数据: {json.dumps(data, ensure_ascii=False)[:200]}")
+        return self._make_written_fallback(num)
+
+    def _make_written_fallback(self, num: int) -> dict:
+        """生成笔试备选选择题"""
+        fallbacks = [
+            {
+                "question": "在软件开发中，下列哪种设计模式属于创建型模式？",
+                "type": "选择题", "difficulty": "easy", "topic": "设计模式",
+                "options": {"A": "工厂模式", "B": "观察者模式", "C": "装饰器模式", "D": "策略模式"},
+                "correct_answer": "A",
+            },
+            {
+                "question": "HTTP 状态码 404 表示什么？",
+                "type": "选择题", "difficulty": "easy", "topic": "网络基础",
+                "options": {"A": "服务器内部错误", "B": "资源未找到", "C": "重定向", "D": "请求超时"},
+                "correct_answer": "B",
+            },
+            {
+                "question": "以下哪种数据结构是先进后出（LIFO）的？",
+                "type": "选择题", "difficulty": "easy", "topic": "数据结构",
+                "options": {"A": "队列", "B": "栈", "C": "链表", "D": "数组"},
+                "correct_answer": "B",
+            },
+            {
+                "question": "关系型数据库中的主键（Primary Key）的主要作用是什么？",
+                "type": "选择题", "difficulty": "easy", "topic": "数据库",
+                "options": {"A": "加快查询速度", "B": "唯一标识一条记录", "C": "建立索引", "D": "保证数据安全性"},
+                "correct_answer": "B",
+            },
+            {
+                "question": "在 Python 中，列表（list）和元组（tuple）的主要区别是什么？",
+                "type": "选择题", "difficulty": "easy", "topic": "Python基础",
+                "options": {"A": "列表可变，元组不可变", "B": "列表不可变，元组可变", "C": "两者没有区别", "D": "列表只能存储数字"},
+                "correct_answer": "A",
+            },
+        ]
+        return fallbacks[(num - 1) % len(fallbacks)]
+
+    def _make_fallback(self, num: int, round_name: str = "") -> dict:
+        if round_name == "written":
+            return self._make_written_fallback(num)
+        return {"question": f"请介绍一下你在最近项目中的技术选型和架构设计。", "type": "技术", "difficulty": "medium", "topic": "项目经验", "expected_points": []}
+
+    def _parse_written_evaluation(self, raw: Optional[str]) -> dict:
+        default = {"correct": False, "correct_answer": "", "explanation": "", "score": 0}
+        if not raw:
+            return default
+        try:
+            data = json.loads(raw)
+            return {**default, **data}
+        except json.JSONDecodeError:
+            match = re.search(r'\{[\s\S]*\}', raw)
+            if match:
+                try:
+                    data = json.loads(match.group())
+                    return {**default, **data}
+                except json.JSONDecodeError:
+                    pass
+        logger.warning(f"笔试评估解析失败: {raw[:200]}")
+        return default
 
     def _parse_evaluation(self, raw: Optional[str]) -> dict:
         default = {

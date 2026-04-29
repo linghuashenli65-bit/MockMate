@@ -51,6 +51,10 @@ class MiMoClient:
         """调用推理模型"""
         return await self.chat(MIMO_MODEL_REASONING, messages, **kwargs)
 
+    async def written_eval(self, messages: list, **kwargs) -> Optional[str]:
+        """笔试判卷（MiMo 没有专用模型，复用推理模型作为 fallback）"""
+        return await self.reason(messages, **kwargs)
+
     async def extract_text_from_image(self, image_bytes: bytes) -> Optional[str]:
         """多模态：从图片提取文字"""
         if not self.ready:

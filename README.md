@@ -178,7 +178,7 @@ AI 分析简历文本，提取技能、经验、项目。
 | 技术一面 | `tech_1` | 项目经验 + 技术基础深入 |
 | 技术二面 | `tech_2` | 系统设计 + 架构 + 深度原理 |
 | 综合面 | `comprehensive` | 综合素质 + 行为面试 + 职业规划 |
-| 笔试 | `written` | 选择题 + 填空题 + 简答题 |
+| 笔试 | `written` | 选择题 + 判断题，AI 自动判卷解析 |
 
 ```json
 // 请求
@@ -367,7 +367,7 @@ MockMate/
 | 层级 | 技术 |
 |------|------|
 | 后端框架 | FastAPI + uvicorn |
-| AI 推理 | MiMo API / DeepSeek API |
+| AI 推理 | MiMo API / DeepSeek API（笔试判卷用 deepseek-chat；面试评估用非思考模式） |
 | 网页搜索 | DuckDuckGo + Bing（自动 fallback）|
 | 图片识别 | MiMo 多模态 API |
 | 语音合成 | MiMo TTS |

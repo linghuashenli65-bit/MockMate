@@ -77,6 +77,28 @@ class AIClient:
                 result = await fallback.reason(messages, **kwargs)
         return result
 
+    async def chat(self, messages: list, **kwargs) -> Optional[str]:
+        """标准对话（非推理） - 首选当前提供商的标准模型，失败时自动 fallback"""
+        client = self._primary()
+        result = await client.chat_standard(messages, **kwargs)
+        if result is None:
+            fallback = self.deepseek if self._provider == "mimo" else self.mimo
+            if fallback.ready:
+                logger.warning(f"{self._provider} 标准模型调用失败，fallback 到另一个提供商")
+                result = await fallback.chat_standard(messages, **kwargs)
+        return result
+
+    async def written_eval(self, messages: list, **kwargs) -> Optional[str]:
+        """笔试判卷 - 使用更快模型，失败时自动 fallback"""
+        client = self._primary()
+        result = await client.written_eval(messages, **kwargs)
+        if result is None:
+            fallback = self.deepseek if self._provider == "mimo" else self.mimo
+            if fallback.ready:
+                logger.warning(f"{self._provider} 笔试判卷调用失败，fallback 到另一个提供商")
+                result = await fallback.written_eval(messages, **kwargs)
+        return result
+
     async def extract_text_from_image(self, image_bytes: bytes) -> Optional[str]:
         """图片文字提取 - 仅 MiMo 支持"""
         result = await self.mimo.extract_text_from_image(image_bytes)

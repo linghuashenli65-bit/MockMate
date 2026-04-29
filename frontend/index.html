@@ -170,10 +170,10 @@
         <input type="text" id="companyInput" placeholder="例如：字节跳动、腾讯... 留空则不限定">
       </div>
       <div class="form-group">
-        <label>简历内容（粘贴或上传简历图片）</label>
+        <label>简历内容（粘贴或上传简历文件）</label>
         <textarea id="resumeInput" rows="6" placeholder="粘贴你的简历内容，包括技能、项目经验、工作经历等..."></textarea>
         <div style="margin-top:6px;font-size:12px;color:var(--text2)">
-          也支持上传简历图片（JPG/PNG）：<input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png" style="width:auto;display:inline;padding:4px 8px;font-size:12px">
+          也支持上传简历文件（JPG/PNG/PDF/Word/Markdown）：<input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md" style="width:auto;display:inline;padding:4px 8px;font-size:12px">
         </div>
       </div>
 
@@ -205,7 +205,7 @@
             <input type="radio" name="round" value="written" style="width:16px;height:16px;margin-top:2px;accent-color:var(--accent)">
             <div>
               <div style="font-weight:600;font-size:14px">笔试</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px">选择题 + 填空题 + 简答题</div>
+              <div style="font-size:11px;color:var(--text2);margin-top:2px">选择题 + 判断题，AI 自动判卷解析</div>
             </div>
           </label>
         </div>
@@ -469,6 +469,9 @@ let currentQuestionIndex = 0;
 let interviewActive = false;
 let interviewStartTime = null;
 let timerInterval = null;
+let isWrittenRound = false;
+let totalQuestions = 0;
+const ROUND_TOTALS = { written: 20, tech_1: 8, tech_2: 6, comprehensive: 6 };
 
 // 面试中离开保护
 window.addEventListener('beforeunload', (e) => {
@@ -525,6 +528,8 @@ document.getElementById('startInterviewBtn').addEventListener('click', async () 
     currentSessionId = result.session_id;
     currentQuestionIndex = 0;
     interviewActive = true;
+    isWrittenRound = result.round === 'written';
+    totalQuestions = ROUND_TOTALS[result.round] || 8;
     startTimer();
 
     // 设置轮次标签
@@ -547,7 +552,8 @@ document.getElementById('startInterviewBtn').addEventListener('click', async () 
 
 function showQuestion(question, index, audioUrl) {
   const area = document.getElementById('interviewArea');
-  document.getElementById('questionCount').textContent = `第 ${index + 1} 题`;
+  window._lastQuestion = question;
+  document.getElementById('questionCount').textContent = `第 ${index + 1} / ${totalQuestions} 题`;
 
   let meta = '';
   if (question.difficulty) {
@@ -560,14 +566,25 @@ function showQuestion(question, index, audioUrl) {
     audioHtml = `<div style="margin-top:12px"><audio controls style="width:100%;height:36px"><source src="${audioUrl}" type="audio/mpeg"></audio></div>`;
   }
 
-  area.innerHTML = `
-    <div class="question-box">
-      <div class="q-label">面试官提问</div>
-      <div class="q-text">${esc(question.question)}</div>
-      ${meta}
-      ${audioHtml}
+  // 选择题/判断题渲染
+  let answerHtml = '';
+  if (question.options) {
+    let optsHtml = '';
+    for (const [key, val] of Object.entries(question.options)) {
+      optsHtml += `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;margin:4px 0;background:var(--surface2);border-radius:8px;cursor:pointer;border:2px solid var(--border);transition:all .2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+        <input type="radio" name="writtenAnswer" value="${esc(key)}" style="width:16px;height:16px;accent-color:var(--accent)">
+        <span style="font-size:14px"><strong>${esc(key)}.</strong> ${esc(val)}</span>
+      </label>`;
+    }
+    answerHtml = `<div class="form-group">
+      <label>请选择答案</label>
+      <div id="optionsContainer">${optsHtml}</div>
     </div>
-    <div class="form-group">
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>
+    </div>`;
+  } else {
+    answerHtml = `<div class="form-group">
       <label>你的回答</label>
       <textarea id="answerInput" rows="5" placeholder="输入你的回答...（Ctrl+Enter 快捷提交）"></textarea>
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:4px">
@@ -577,22 +594,44 @@ function showQuestion(question, index, audioUrl) {
     </div>
     <div style="display:flex;gap:10px">
       <button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>
+    </div>`;
+  }
+
+  area.innerHTML = `
+    <div class="question-box">
+      <div class="q-label">${isWrittenRound ? '笔试题目' : '面试官提问'}</div>
+      <div class="q-text">${esc(question.question)}</div>
+      ${meta}
+      ${audioHtml}
     </div>
+    ${answerHtml}
     <div id="evaluationResult"></div>
   `;
 
-  const ta = document.getElementById('answerInput');
-  ta.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key === 'Enter') submitAnswer(); });
-  ta.addEventListener('input', () => {
-    document.getElementById('charCount').textContent = ta.value.length + ' 字';
-  });
-  document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
-  ta.focus();
+  if (question.options) {
+    document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
+  } else {
+    const ta = document.getElementById('answerInput');
+    ta.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key === 'Enter') submitAnswer(); });
+    ta.addEventListener('input', () => {
+      document.getElementById('charCount').textContent = ta.value.length + ' 字';
+    });
+    document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
+    ta.focus();
+  }
 }
 
 async function submitAnswer() {
-  const answer = document.getElementById('answerInput').value.trim();
-  if (!answer) { toast('请先输入回答'); return; }
+  let answer;
+  const questionObj = window._lastQuestion;
+  if (questionObj && questionObj.options) {
+    const selected = document.querySelector('input[name="writtenAnswer"]:checked');
+    if (!selected) { toast('请选择一个答案'); return; }
+    answer = selected.value;
+  } else {
+    answer = document.getElementById('answerInput').value.trim();
+    if (!answer) { toast('请先输入回答'); return; }
+  }
 
   const btn = document.getElementById('submitAnswerBtn');
   btn.disabled = true; btn.textContent = '评估中...';
@@ -609,27 +648,48 @@ async function submitAnswer() {
     // 显示评估结果
     const evalBox = document.getElementById('evaluationResult');
     const ev = result.evaluation;
-    evalBox.innerHTML = `
-      <div class="feedback-box">
-        <div class="score-row">
-          <span class="score-tag">综合 <span class="val" style="color:${scoreColor(ev.overall_score)}">${ev.overall_score}</span></span>
-          <span class="score-tag">技术 <span class="val" style="color:${scoreColor(ev.technical_score)}">${ev.technical_score}</span></span>
-          <span class="score-tag">逻辑 <span class="val" style="color:${scoreColor(ev.logic_score)}">${ev.logic_score}</span></span>
-          <span class="score-tag">深度 <span class="val" style="color:${scoreColor(ev.depth_score)}">${ev.depth_score}</span></span>
-          <span class="score-tag">表达 <span class="val" style="color:${scoreColor(ev.communication_score)}">${ev.communication_score}</span></span>
-        </div>
-        <div style="font-size:13px;line-height:1.6">
-          <p>${esc(ev.summary)}</p>
-          ${ev.strengths && ev.strengths.length ? '<div style="margin-top:8px"><strong>优点：</strong> '+ev.strengths.map(esc).join('、')+'</div>' : ''}
-          ${ev.improvements && ev.improvements.length ? '<div style="margin-top:4px"><strong>改进建议：</strong> '+ev.improvements.map(esc).join('、')+'</div>' : ''}
-          ${ev.reference_answer ? '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px"><strong>参考回答：</strong><br>'+esc(ev.reference_answer)+'</div>' : ''}
+
+    if (isWrittenRound) {
+      // 笔试评估：显示对错 + 解析
+      const isCorrect = ev.correct;
+      const icon = isCorrect ? '&#10004;' : '&#10008;';
+      const color = isCorrect ? 'var(--green)' : 'var(--red)';
+      const label = isCorrect ? '回答正确' : '回答错误';
+      evalBox.innerHTML = `
+        <div class="feedback-box" style="border-left-color:${color}">
+          <div style="font-size:24px;color:${color};margin-bottom:8px">${icon} <span style="font-size:16px;font-weight:600">${label}</span></div>
+          <div style="font-size:13px;color:var(--text2);margin-bottom:6px"><strong>正确答案：</strong>${esc(ev.correct_answer)}</div>
+          <div style="font-size:13px;line-height:1.6;padding:10px;background:var(--surface);border-radius:6px"><strong>解析：</strong><br>${esc(ev.explanation)}</div>
         </div>
         <div style="margin-top:12px;display:flex;gap:10px">
           <button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>
           <button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>
         </div>
-      </div>
-    `;
+      `;
+    } else {
+      // 面试评估：多维度评分
+      evalBox.innerHTML = `
+        <div class="feedback-box">
+          <div class="score-row">
+            <span class="score-tag">综合 <span class="val" style="color:${scoreColor(ev.overall_score)}">${ev.overall_score}</span></span>
+            <span class="score-tag">技术 <span class="val" style="color:${scoreColor(ev.technical_score)}">${ev.technical_score}</span></span>
+            <span class="score-tag">逻辑 <span class="val" style="color:${scoreColor(ev.logic_score)}">${ev.logic_score}</span></span>
+            <span class="score-tag">深度 <span class="val" style="color:${scoreColor(ev.depth_score)}">${ev.depth_score}</span></span>
+            <span class="score-tag">表达 <span class="val" style="color:${scoreColor(ev.communication_score)}">${ev.communication_score}</span></span>
+          </div>
+          <div style="font-size:13px;line-height:1.6">
+            <p>${esc(ev.summary)}</p>
+            ${ev.strengths && ev.strengths.length ? '<div style="margin-top:8px"><strong>优点：</strong> '+ev.strengths.map(esc).join('、')+'</div>' : ''}
+            ${ev.improvements && ev.improvements.length ? '<div style="margin-top:4px"><strong>改进建议：</strong> '+ev.improvements.map(esc).join('、')+'</div>' : ''}
+            ${ev.reference_answer ? '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px"><strong>参考回答：</strong><br>'+esc(ev.reference_answer)+'</div>' : ''}
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px">
+            <button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>
+            <button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>
+          </div>
+        </div>
+      `;
+    }
     document.getElementById('nextQuestionBtn').addEventListener('click', () => {
       showQuestion(result.next_question, result.next_index, result.audio_url);
     });
@@ -648,6 +708,18 @@ async function endInterview() {
   if (!currentSessionId) return;
   if (!confirm('确定结束面试并生成报告？')) return;
 
+  // 显示生成报告中的提示
+  const area = document.getElementById('interviewArea');
+  area.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">
+      <div class="spinner" style="width:40px;height:40px;border-width:4px"></div>
+      <div style="margin-top:16px;font-size:16px;font-weight:600">正在生成报告...</div>
+      <div style="margin-top:8px;font-size:13px;color:var(--text2)">AI 正在评估你的回答并生成面试总结</div>
+    </div>
+  `;
+  document.getElementById('questionCount').textContent = '面试结束';
+  document.getElementById('submitAnswerBtn') && (document.getElementById('submitAnswerBtn').disabled = true);
+
   try {
     const result = await API.post('/api/interview/end', {
       session_id: currentSessionId,
@@ -656,13 +728,20 @@ async function endInterview() {
     toast('面试已结束，报告已生成');
   } catch(e) {
     toast('结束面试失败: ' + e.message);
+    // 恢复加载前的状态
+    showQuestion(
+      window._lastQuestion || {question:'请重试', type:'', difficulty:'', topic:''},
+      currentQuestionIndex,
+      null
+    );
   }
 }
 
 function showReport(result) {
   const r = result.report || {};
   const area = document.getElementById('interviewArea');
-  document.getElementById('questionCount').textContent = '面试结束';
+  const historyLen = (result.history || []).length;
+  document.getElementById('questionCount').textContent = `面试结束 · 共 ${historyLen} 题`;
 
   const roundNames = { 'written':'笔试', 'tech_1':'技术一面', 'tech_2':'技术二面', 'comprehensive':'综合面' };
   let html = '<div class="card" style="border-left:3px solid var(--accent)">';

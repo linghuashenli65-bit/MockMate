@@ -13,6 +13,11 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import io
+
+from pypdf import PdfReader
+from docx import Document
+
 from .config import HOST, PORT, DATA_DIR
 from .ai_client import AIClient
 from .web_research import WebResearch
@@ -125,12 +130,48 @@ def update_config(cfg: ConfigUpdate):
 async def parse_resume(file: UploadFile = File(...)):
     contents = await file.read()
     ext = Path(file.filename).suffix.lower()
+
     if ext in (".jpg", ".jpeg", ".png"):
         text = await ai.extract_text_from_image(contents)
         if text:
             return {"text": text, "source": "ocr"}
         raise HTTPException(503, "图片识别需要配置 MiMo API Key")
-    raise HTTPException(400, f"不支持: {ext}，仅支持 JPG/PNG")
+
+    if ext == ".pdf":
+        try:
+            reader = PdfReader(io.BytesIO(contents))
+            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            if text.strip():
+                return {"text": text.strip(), "source": "pdf"}
+            raise HTTPException(400, "无法从 PDF 中提取文字（可能为扫描件）")
+        except Exception as e:
+            logger.error(f"PDF 解析失败: {e}")
+            raise HTTPException(400, f"PDF 解析失败: {str(e)}")
+
+    if ext == ".docx":
+        try:
+            doc = Document(io.BytesIO(contents))
+            text = "\n".join(p.text for p in doc.paragraphs)
+            if text.strip():
+                return {"text": text.strip(), "source": "docx"}
+            raise HTTPException(400, "无法从 Word 文档中提取文字")
+        except Exception as e:
+            logger.error(f"DOCX 解析失败: {e}")
+            raise HTTPException(400, f"Word 文档解析失败: {str(e)}")
+
+    if ext == ".md":
+        try:
+            text = contents.decode("utf-8")
+            if text.strip():
+                return {"text": text.strip(), "source": "markdown"}
+            raise HTTPException(400, "Markdown 文件内容为空")
+        except UnicodeDecodeError:
+            raise HTTPException(400, "Markdown 文件编码错误，请使用 UTF-8 编码")
+        except Exception as e:
+            logger.error(f"MD 解析失败: {e}")
+            raise HTTPException(400, f"Markdown 解析失败: {str(e)}")
+
+    raise HTTPException(400, f"不支持的文件格式: {ext}，支持 JPG/PNG/PDF/DOCX/MD")
 
 @app.post("/api/resume/analyze")
 async def analyze_resume(req: ResumeText):
@@ -236,7 +277,8 @@ async def submit_answer(req: AnswerSubmission):
     question_text = current_q.get("question", "")
 
     context = {"profile": session.get("profile", {})}
-    evaluation = await engine.evaluate_answer(question_text, req.answer, context)
+    round_name = session.get("round", "tech_1")
+    evaluation = await engine.evaluate_answer(question_text, req.answer, context, round_name)
 
     session["history"].append({
         "q": question_text,
