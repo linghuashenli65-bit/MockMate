@@ -149,8 +149,10 @@ class InterviewEngine:
 绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
 每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
 
+【重要】correct_answer 必须是题目客观正确的答案。你必须仔细确认正确选项后再填写，绝对不能随意填写！这是判卷的唯一依据，填错会导致误判。
+
 只输出 JSON:
-{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "A"}}"""
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "（你确认正确的选项字母，如 B）"}}"""
 
     def _build_next_prompt(self, history: list[dict], resume: str, profile: dict, round_name: str) -> str:
         rc = self._get_round_config(round_name)
@@ -249,19 +251,27 @@ class InterviewEngine:
 绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
 每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
 
+【重要】correct_answer 必须是题目客观正确的答案。你必须仔细确认正确选项后再填写，绝对不能随意填写！这是判卷的唯一依据，填错会导致误判。
+
 只输出 JSON:
-{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy/medium/hard", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "A"}}"""
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy/medium/hard", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "（你确认正确的选项字母，如 B）"}}"""
 
     def _build_written_evaluation_prompt(self, question: str, answer: str) -> str:
-        return f"""你是一个笔试判卷老师。请判断答案是否正确并给出解析。
+        return f"""你是一个笔试判卷老师。请判断用户选择的答案是否正确并给出解析。
 
-题目信息（含选项和正确答案）:
+题目信息:
 {question[:2000]}
 
 用户选择的答案: {answer[:200]}
 
+判卷规则：
+1. 首先根据题目内容独立思考真正正确的答案是什么
+2. 将用户的选择与真正正确的答案对比
+3. 如果题目中标注的 correct_answer 和你独立判断的答案不一致，以你的独立判断为准（出题时可能写错了答案）
+4. correct_answer 字段输出你确认后的正确答案
+
 只输出 JSON:
-{{"correct": true, "correct_answer": "A", "explanation": "解析（2-3句，说明为什么对/错）", "score": 10}}"""
+{{"correct": true或false, "correct_answer": "真正正确的选项字母", "explanation": "解析（2-3句，说明为什么对/错）", "score": 10}}"""
 
     def _build_evaluation_prompt(self, question: str, answer: str, context: dict) -> str:
         return f"""你是一个专业的面试官，请严格按以下 JSON 格式评估候选人的回答，不要输出其他内容。
