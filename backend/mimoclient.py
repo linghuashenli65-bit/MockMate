@@ -51,6 +51,10 @@ class MiMoClient:
         """调用推理模型"""
         return await self.chat(MIMO_MODEL_REASONING, messages, **kwargs)
 
+    async def chat_standard(self, messages: list, **kwargs) -> Optional[str]:
+        """标准对话（非推理），复用推理模型"""
+        return await self.reason(messages, **kwargs)
+
     async def written_eval(self, messages: list, **kwargs) -> Optional[str]:
         """笔试判卷（MiMo 没有专用模型，复用推理模型作为 fallback）"""
         return await self.reason(messages, **kwargs)

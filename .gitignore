@@ -37,3 +37,6 @@ backend/data/sessions/*.json
 
 # Research cache
 backend/data/research_cache.json
+
+# Screenshots
+ScreenShot_*.png

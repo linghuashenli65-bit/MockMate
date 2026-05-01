@@ -65,11 +65,11 @@ python run.py    # 直接运行
                 │       │       │  │Cli  │ │Seek  ││  │
                 │       ▼       │  └─────┘ └──────┘│  │
                 │  ┌─────────┐  └──────────────────┘  │
-                │  │ 缓存     │       │               │
-                │  │ cache.py│       ▼               │
-                │  └─────────┘  ┌──────────────────┐  │
-                │               │  语音合成 TTS     │  │
-                │               │  report.py       │  │
+                │  │ 数据库    │       │               │
+                │  │database │       ▼               │
+                │  │ .py     │  ┌──────────────────┐  │
+                │  └─────────┘  │  语音合成 TTS     │  │
+                │               │  tts.py           │  │
                 │               └──────────────────┘  │
                 └─────────────────────────────────────┘
 ```
@@ -86,10 +86,9 @@ python run.py    # 直接运行
 | **面试引擎** | `backend/interview_engine.py` | 出题、评分、报告生成的 Prompt 编排 |
 | **网页搜索** | `backend/web_research.py` | 多引擎并行搜索 + AI 整合成岗位画像 |
 | **语音合成** | `backend/tts.py` | 文字转语音 MP3 |
-| **数据持久化** | `backend/report.py` | 面试会话 JSON 文件管理 |
-| **缓存** | `backend/cache.py` | 岗位画像缓存（90 天 TTL） |
+| **数据持久化** | `backend/database.py` | MySQL / JSON 文件双模式存储（会话、缓存、搜索历史） |
 | **配置** | `backend/config.py` | 环境变量和常量配置 |
-| **前端** | `frontend/index.html` | 单页应用（纯 JS，无框架） |
+| **前端** | `frontend/` | 模块化 SPA（7 个 JS 模块 + 独立 CSS） |
 
 ---
 
@@ -108,6 +107,7 @@ python run.py    # 直接运行
   "provider": "mimo",
   "mimo_ready": false,
   "deepseek_ready": false,
+  "db": "json",
   "cache": { "total": 0, "valid": 0, "expired": 0 }
 }
 ```
@@ -125,11 +125,11 @@ python run.py    # 直接运行
 ### 简历
 
 #### `POST /api/resume/parse`
-上传简历图片进行 OCR 识别。
+上传简历文件进行解析。
 
 - Content-Type: `multipart/form-data`
-- 支持: JPG/PNG
-- 需要 MiMo API Key（多模态能力）
+- 支持: JPG / PNG / PDF / DOCX / MD
+- JPG/PNG 需要 MiMo API Key（多模态能力）
 
 ```json
 // 响应
@@ -256,6 +256,7 @@ AI 分析简历文本，提取技能、经验、项目。
 | DELETE | `/api/history/{session_id}` | 删除指定记录 |
 | GET | `/api/cache/stats` | 缓存统计 |
 | POST | `/api/cache/clear` | 清空缓存 |
+| GET | `/api/search/history` | 搜索历史记录 |
 
 ---
 
@@ -266,9 +267,22 @@ MockMate/
 ├── run.py                      # 启动入口
 ├── start.bat                   # Windows 启动脚本
 ├── requirements.txt            # Python 依赖
+├── mockmate.sql                # MySQL 建表脚本
 ├── README.md                   # 本文件
+├── .env / .env.example         # 环境配置
 ├── frontend/
-│   └── index.html              # 单页前端（纯 JS，无框架依赖）
+│   ├── index.html              # HTML 骨架
+│   ├── README.md               # 前端开发文档
+│   ├── css/
+│   │   └── style.css           # 全部样式（主题、组件、动画、响应式）
+│   └── js/
+│       ├── app.js              # 主入口（Tab 切换、快捷键、表单记忆）
+│       ├── api.js              # API 请求封装
+│       ├── utils.js            # 工具函数 & 常量
+│       ├── interview.js        # 面试全流程（出题、答题、评分、报告）
+│       ├── research.js         # 岗位画像搜索
+│       ├── history.js          # 历史记录 + Chart.js 图表
+│       └── settings.js         # API Key 配置
 └── backend/
     ├── __init__.py
     ├── config.py               # 配置（API Key、端口、模型名称）
@@ -279,8 +293,7 @@ MockMate/
     ├── interview_engine.py     # 面试引擎（出题、评分、报告）
     ├── web_research.py         # 网络搜索 + 岗位画像生成
     ├── tts.py                  # 语音合成
-    ├── report.py               # 面试记录持久化
-    ├── cache.py                # 岗位画像缓存
+    ├── database.py             # 数据持久化（MySQL / JSON 回退）
     └── data/                   # 运行时数据（自动创建）
         ├── sessions/           # 面试会话 JSON
         ├── audios/             # 语音 MP3 文件
@@ -367,12 +380,13 @@ MockMate/
 | 层级 | 技术 |
 |------|------|
 | 后端框架 | FastAPI + uvicorn |
-| AI 推理 | MiMo API / DeepSeek API（笔试判卷用 deepseek-chat；面试评估用非思考模式） |
-| 网页搜索 | DuckDuckGo + Bing（自动 fallback）|
+| AI 推理 | MiMo API / DeepSeek API |
+| 网页搜索 | Bing + DuckDuckGo（自动 fallback）|
 | 图片识别 | MiMo 多模态 API |
 | 语音合成 | MiMo TTS |
-| 数据存储 | JSON 文件（data/ 目录） |
-| 前端 | 原生 JS SPA（无框架） |
+| 数据存储 | MySQL / JSON 文件双模式 |
+| 前端 | 原生 JS SPA（7 模块化文件 + Chart.js 图表） |
+| 图表库 | Chart.js v4（CDN 引入） |
 | 依赖管理 | pip + requirements.txt |
 
 ---
@@ -381,8 +395,8 @@ MockMate/
 
 ### 添加新的 AI 提供商
 
-1. 在 `backend/` 下新建客户端类，继承 httpx.AsyncClient 模式
-2. 实现 `reason()` 方法
+1. 在 `backend/` 下新建客户端类，参考 `mimoclient.py` 的模式
+2. 实现 `reason()`、`chat_standard()`、`written_eval()` 方法
 3. 在 `config.py` 添加配置项
 4. 在 `ai_client.py` 注册新客户端和 fallback 逻辑
 
@@ -395,11 +409,21 @@ MockMate/
 
 ### 前端开发
 
-前端是单文件 `frontend/index.html`，无构建步骤。
-- 所有 CSS 内联在 `<style>` 标签
-- 所有 JS 内联在 `<script>` 标签
-- 通过 `fetch()` 调用后端 API
-- 主题变量在 `:root` 中定义，修改即可换肤
+前端是模块化 SPA，所有文件在 `frontend/` 目录：
+- `index.html` — HTML 骨架，引入 CSS 和 JS
+- `css/style.css` — 全部样式（CSS 变量控制主题）
+- `js/app.js` — 主入口，通过 `MockMate.init()` 启动
+- 所有模块挂在 `window.MockMate` 命名空间下
+
+各 JS 模块职责和 API 详见 `frontend/README.md`。
+
+### 添加新的前端 Tab 页面
+
+1. 在 `index.html` 添加 `.tab` 按钮 + `.tab-content` 容器
+2. 新建对应的 JS 模块文件
+3. 在 `index.html` 中按依赖顺序引入
+4. 在模块的 `init()` 方法中绑定事件
+5. `switchTab()` 自动处理 Tab 切换
 
 ### 日志
 

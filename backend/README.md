@@ -11,15 +11,16 @@ backend/
 ├── interview_engine.py  # 面试引擎（Prompt 编排 + 输出解析）
 ├── web_research.py      # 岗位信息搜索 + 画像生成
 ├── tts.py               # 语音合成
-├── report.py            # 报告生成
-├── database.py          # 数据持久化（MySQL / JSON 回退）
-├── cache.py             # 岗位画像缓存
+├── database.py          # 数据持久化（MySQL / JSON 回退，含缓存和搜索历史）
 ├── config.py            # 环境变量和常量
+├── stream_chat.py       # 流式 SSE 对话接口（独立模块，待集成）
 └── data/                # 运行时数据
     ├── sessions/        # 面试会话 JSON
     ├── audios/          # 语音 MP3
     └── mockmate.log     # 运行日志
 ```
+
+---
 
 ## 核心模块说明
 
@@ -29,13 +30,25 @@ backend/
 
 ```
 AIClient
-  ├── .reason(messages)    → 推理/对话（主入口）
+  ├── .reason(messages)         → 推理/对话（主入口）
+  ├── .chat(messages)           → 标准对话（评估、笔试出题）
+  ├── .written_eval(messages)   → 笔试判卷（更快模型）
   ├── .extract_text_from_image(bytes) → OCR（仅 MiMo）
-  ├── .text_to_speech(text) → TTS（仅 MiMo）
+  ├── .text_to_speech(text)     → TTS（仅 MiMo）
   └── 自动 fallback：主提供商失败 → 切换到另一个
 ```
 
-**添加新提供商**：在 `config.py` 加配置项 → 新建客户端类（实现 `reason()`）→ 在 `ai_client.py` 注册。
+接口方法对照：
+
+| 方法 | MiMoClient | DeepSeekClient | 说明 |
+|------|-----------|---------------|------|
+| `reason()` | 推理模型 | 推理模型（空则降级 chat） | 深度推理 |
+| `chat_standard()` | 复用推理模型 | chat 模型 | 标准对话 |
+| `written_eval()` | 复用推理模型 | deepseek-chat 模型 | 笔试判卷 |
+| `extract_text_from_image()` | 多模态模型 | 不支持（返回 null） | 图片 OCR |
+| `text_to_speech()` | TTS 模型 | 不支持（返回 null） | 语音合成 |
+
+**添加新提供商**：在 `config.py` 加配置项 → 新建客户端类（实现 `reason()`、`chat_standard()`、`written_eval()`）→ 在 `ai_client.py` 注册。
 
 ### 2. 面试引擎 (`interview_engine.py`)
 
@@ -66,7 +79,7 @@ end_interview()
 | `tech_2` | 技术二面 | Medium→Hard | 系统设计、架构、原理深度 |
 | `comprehensive` | 综合面 | Easy→Hard | 行为面试、综合素质、职业规划 |
 
-默认轮次：`tech_1`。前端不传轮次时使用此值。
+默认轮次：`tech_1`。
 
 #### 出题策略
 
@@ -93,13 +106,13 @@ end_interview()
 
 ```
 search_position(position)
-  ├── 任务 1: DuckDuckGo 搜索招聘要求
-  ├── 任务 2: DuckDuckGo 搜索面经
-  ├── 任务 3: Bing 搜索（备选）
+  ├── 任务 1: Bing 搜索招聘要求
+  ├── 任务 2: Bing 搜索面经
+  ├── 任务 3: DuckDuckGo 搜索（备选）
   └── AI 整合 → 结构化岗位画像
 ```
 
-失败降级：搜索全部失败 → 使用 AI 自身知识。
+失败降级：搜索全部失败 → 使用 AI 自身知识生成画像。
 
 ### 4. 数据持久化 (`database.py`)
 
@@ -107,6 +120,8 @@ search_position(position)
 
 - **MySQL 模式**：通过 aiomysql 连接，自动建表
 - **JSON 回退模式**：MySQL 不可用时使用 `data/sessions/` 目录下的 JSON 文件
+
+所有缓存和搜索历史也由 `Database` 类统一管理。
 
 #### Sessions 表结构
 
@@ -185,6 +200,7 @@ MYSQL_DATABASE=mockmate
 - AI 调用失败自动 fallback 到另一个提供商
 - AI 输出解析失败使用默认降级值（不会中断流程）
 - JSON 文件写入失败记录 warning 日志，不影响主流程
+- 数据库不可用时自动切换 JSON 文件模式
 
 ## 日志
 

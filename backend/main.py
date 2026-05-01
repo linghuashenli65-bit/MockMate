@@ -66,7 +66,7 @@ class StartInterview(BaseModel):
     position: str
     company: str = ""
     profile: dict = {}
-    round: str = "written"
+    round: str = "tech_1"
 
 class AnswerSubmission(BaseModel):
     session_id: str
@@ -240,7 +240,7 @@ async def start_interview(req: StartInterview):
     session_id = uuid.uuid4().hex[:12]
     profile = req.profile or {"position": req.position}
 
-    round_name = req.round if hasattr(req, 'round') and req.round else "written"
+    round_name = req.round  # Pydantic 默认值为 tech_1
     question = await engine.generate_first_question(req.resume, profile, round_name)
     audio_path = await tts.synthesize(question["question"], session_id, 0)
 
@@ -291,7 +291,7 @@ async def submit_answer(req: AnswerSubmission):
     next_index = session["current_index"] + 1
     next_q = await engine.generate_next_question(
         session["history"], session.get("resume", ""), session.get("profile", {}),
-        round_name=session.get("round", "written"),
+        round_name=session.get("round", "tech_1"),
     )
     audio_path = await tts.synthesize(next_q["question"], req.session_id, next_index)
 

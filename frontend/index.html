@@ -4,141 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MockMate - AI 面试模拟陪练</title>
-<style>
-  :root {
-    --bg: #0f1117; --surface: #1a1d29; --surface2: #232738;
-    --border: #2e3348; --text: #e4e6f0; --text2: #8b8fa8;
-    --accent: #6c5ce7; --accent2: #a29bfe;
-    --green: #00b894; --yellow: #fdcb6e; --red: #e17055; --radius: 10px;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-    background: var(--bg); color: var(--text); min-height: 100vh;
-  }
-  .app { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
-
-  header {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 16px 0; border-bottom: 1px solid var(--border); margin-bottom: 24px;
-  }
-  header h1 {
-    font-size: 22px; font-weight: 700;
-    background: linear-gradient(135deg, var(--accent2), var(--accent));
-    -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-  }
-  header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-  .dot.green { background: var(--green); }
-  .dot.yellow { background: var(--yellow); }
-  .dot.red { background: var(--red); }
-
-  .card {
-    background: var(--surface); border: 1px solid var(--border);
-    border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
-  }
-  .card h2 { font-size: 15px; font-weight: 600; margin-bottom: 12px; color: var(--text2); text-transform: uppercase; letter-spacing: .5px; }
-
-  .tabs { display: flex; gap: 2px; margin-bottom: 20px; background: var(--surface); border-radius: var(--radius); padding: 4px; }
-  .tab {
-    flex: 1; padding: 10px; text-align: center; border-radius: 8px; cursor: pointer;
-    font-size: 14px; color: var(--text2); transition: all .2s; border: none; background: none;
-  }
-  .tab.active { background: var(--accent); color: #fff; }
-  .tab-content { display: none; }
-  .tab-content.active { display: block; }
-
-  .btn {
-    padding: 10px 20px; border-radius: var(--radius); border: none; cursor: pointer;
-    font-size: 14px; font-weight: 500; transition: all .2s; white-space: nowrap;
-  }
-  .btn-primary { background: var(--accent); color: #fff; }
-  .btn-primary:hover { background: var(--accent2); }
-  .btn-primary:disabled { opacity: .4; cursor: not-allowed; }
-  .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
-  .btn-danger { background: var(--red); color: #fff; }
-  .btn-sm { padding: 6px 14px; font-size: 12px; }
-
-  input, textarea, select {
-    width: 100%; padding: 10px 14px; border-radius: var(--radius); border: 1px solid var(--border);
-    background: var(--surface2); color: var(--text); font-size: 14px; outline: none;
-    font-family: inherit;
-  }
-  input:focus, textarea:focus { border-color: var(--accent); }
-  textarea { resize: vertical; min-height: 80px; }
-
-  .form-group { margin-bottom: 14px; }
-  .form-group label { display: block; font-size: 13px; color: var(--text2); margin-bottom: 4px; }
-  .form-row { display: flex; gap: 10px; align-items: flex-end; }
-
-  .empty-state { text-align: center; padding: 48px 20px; color: var(--text2); }
-  .loading { text-align: center; padding: 24px; color: var(--text2); }
-  .spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-  .toast {
-    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-    padding: 12px 24px; font-size: 14px; box-shadow: 0 4px 24px rgba(0,0,0,.5);
-    opacity: 0; transition: opacity .3s; z-index: 999;
-  }
-  .toast.show { opacity: 1; }
-
-  /* Interview styles */
-  .interview-area { min-height: 300px; }
-  .question-box {
-    background: var(--surface2); border-radius: var(--radius); padding: 20px;
-    margin-bottom: 16px; border-left: 3px solid var(--accent);
-  }
-  .question-box .q-label { font-size: 12px; color: var(--accent2); margin-bottom: 6px; }
-  .question-box .q-text { font-size: 16px; line-height: 1.7; }
-  .question-box .q-meta { font-size: 12px; color: var(--text2); margin-top: 8px; }
-  .record-btn {
-    width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--red);
-    background: var(--surface); color: var(--red); font-size: 13px; cursor: pointer;
-    transition: all .3s; display: flex; align-items: center; justify-content: center;
-    margin: 0 auto;
-  }
-  .record-btn:hover { background: var(--red); color: #fff; }
-  .record-btn.recording {
-    background: var(--red); color: #fff; animation: pulse 1.5s infinite;
-  }
-  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(225,112,85,.5); } 100% { box-shadow: 0 0 0 20px rgba(225,112,85,0); } }
-
-  .feedback-box {
-    background: var(--surface2); border-radius: var(--radius); padding: 16px; margin-top: 12px;
-    border-left: 3px solid var(--green);
-  }
-  .feedback-box .score-row { display: flex; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-  .score-tag {
-    background: var(--surface); padding: 4px 10px; border-radius: 6px; font-size: 12px;
-  }
-  .score-tag .val { color: var(--green); font-weight: 600; }
-
-  .setting-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
-  .setting-row label { min-width: 100px; font-size: 13px; color: var(--text2); }
-  .setting-row input[type="password"] { flex: 1; font-family: monospace; }
-  .setting-row select { width: auto; min-width: 160px; }
-
-  /* Profile */
-  .profile-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 8px 0; }
-  .skill-tag {
-    display: inline-block; background: var(--accent); color: #fff; padding: 2px 8px;
-    border-radius: 4px; font-size: 12px; margin: 2px;
-  }
-
-  .round-option.selected { border-color: var(--accent) !important; background: var(--surface) !important; }
-  .round-option input { pointer-events: none; }
-
-  @media (max-width: 640px) {
-    .app { padding: 16px 12px; }
-    .profile-grid { grid-template-columns: 1fr; }
-    #roundSelector { grid-template-columns: 1fr !important; }
-  }
-</style>
+<link rel="stylesheet" href="css/style.css">
 </head>
 <body>
+
 <div class="app">
+  <!-- Header -->
   <header>
     <div>
       <h1>MockMate</h1>
@@ -150,6 +21,7 @@
     </div>
   </header>
 
+  <!-- Tab Navigation -->
   <div class="tabs">
     <button class="tab active" data-tab="setup">准备面试</button>
     <button class="tab" data-tab="interview">模拟面试</button>
@@ -157,7 +29,7 @@
     <button class="tab" data-tab="settings">设置</button>
   </div>
 
-  <!-- Tab: 准备面试 -->
+  <!-- ============ Tab: 准备面试 ============ -->
   <div class="tab-content active" id="tab-setup">
     <div class="card">
       <h2>1. 填写信息</h2>
@@ -172,43 +44,48 @@
       <div class="form-group">
         <label>简历内容（粘贴或上传简历文件）</label>
         <textarea id="resumeInput" rows="6" placeholder="粘贴你的简历内容，包括技能、项目经验、工作经历等..."></textarea>
-        <div style="margin-top:6px;font-size:12px;color:var(--text2)">
-          也支持上传简历文件（JPG/PNG/PDF/Word/Markdown）：<input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md" style="width:auto;display:inline;padding:4px 8px;font-size:12px">
+        <div class="form-hint">
+          也支持上传简历文件（JPG/PNG/PDF/Word/Markdown）：
+          <input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md" style="width:auto;display:inline;padding:4px 8px;font-size:12px">
         </div>
       </div>
 
       <div class="form-group">
         <label>面试轮次</label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="roundSelector">
-          <label class="round-option" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .2s" data-round="tech_1">
-            <input type="radio" name="round" value="tech_1" checked style="width:16px;height:16px;margin-top:2px;accent-color:var(--accent)">
+          <label class="round-option" data-round="tech_1">
+            <input type="radio" name="round" value="tech_1" checked>
             <div>
-              <div style="font-weight:600;font-size:14px">技术一面</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px">项目经验 + 技术基础深入</div>
+              <div class="round-name">技术一面</div>
+              <div class="round-desc">项目经验 + 技术基础深入</div>
             </div>
           </label>
-          <label class="round-option" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .2s" data-round="tech_2">
-            <input type="radio" name="round" value="tech_2" style="width:16px;height:16px;margin-top:2px;accent-color:var(--accent)">
+          <label class="round-option" data-round="tech_2">
+            <input type="radio" name="round" value="tech_2">
             <div>
-              <div style="font-weight:600;font-size:14px">技术二面</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px">系统设计 + 架构 + 深度原理</div>
+              <div class="round-name">技术二面</div>
+              <div class="round-desc">系统设计 + 架构 + 深度原理</div>
             </div>
           </label>
-          <label class="round-option" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .2s" data-round="comprehensive">
-            <input type="radio" name="round" value="comprehensive" style="width:16px;height:16px;margin-top:2px;accent-color:var(--accent)">
+          <label class="round-option" data-round="comprehensive">
+            <input type="radio" name="round" value="comprehensive">
             <div>
-              <div style="font-weight:600;font-size:14px">综合面</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px">综合素质 + 行为面试 + 职业规划</div>
+              <div class="round-name">综合面</div>
+              <div class="round-desc">综合素质 + 行为面试 + 职业规划</div>
             </div>
           </label>
-          <label class="round-option" style="display:flex;align-items:flex-start;gap:10px;padding:10px 12px;background:var(--surface2);border:2px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all .2s" data-round="written">
-            <input type="radio" name="round" value="written" style="width:16px;height:16px;margin-top:2px;accent-color:var(--accent)">
+          <label class="round-option" data-round="written">
+            <input type="radio" name="round" value="written">
             <div>
-              <div style="font-weight:600;font-size:14px">笔试</div>
-              <div style="font-size:11px;color:var(--text2);margin-top:2px">选择题 + 判断题，AI 自动判卷解析</div>
+              <div class="round-name">笔试</div>
+              <div class="round-desc">选择题 + 判断题，AI 自动判卷解析</div>
             </div>
           </label>
         </div>
+      </div>
+
+      <div style="margin-top:8px">
+        <button class="btn btn-secondary btn-sm" onclick="MockMate.clearLocalData()">清除本地缓存</button>
       </div>
     </div>
 
@@ -230,10 +107,10 @@
     </div>
   </div>
 
-  <!-- Tab: 模拟面试 -->
+  <!-- ============ Tab: 模拟面试 ============ -->
   <div class="tab-content" id="tab-interview">
     <div class="card">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px">
         <span style="font-size:13px;color:var(--text2)" id="questionCount">第 0 题</span>
         <span style="font-size:12px;color:var(--accent2);background:var(--surface2);padding:2px 10px;border-radius:4px" id="roundLabel"></span>
         <span style="font-size:13px;color:var(--text2)"><span id="interviewTimer">00:00</span></span>
@@ -248,15 +125,12 @@
     </div>
   </div>
 
-  <!-- Tab: 历史记录 -->
+  <!-- ============ Tab: 历史记录 ============ -->
   <div class="tab-content" id="tab-history">
-    <div class="card">
-      <h2>面试记录</h2>
-      <div id="historyList"><div class="empty-state">暂无面试记录</div></div>
-    </div>
+    <div id="historyList"><div class="empty-state">暂无面试记录</div></div>
   </div>
 
-  <!-- Tab: 设置 -->
+  <!-- ============ Tab: 设置 ============ -->
   <div class="tab-content" id="tab-settings">
     <div class="card">
       <h2>AI 提供商</h2>
@@ -291,609 +165,20 @@
   </div>
 </div>
 
+<!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<script>
-// ====== 工具函数 ======
-function esc(str) {
-  const div = document.createElement('div');
-  div.textContent = str || '';
-  return div.innerHTML;
-}
-function scoreColor(v) {
-  const n = Number(v) || 0;
-  if (n >= 8) return 'var(--green)';
-  if (n >= 5) return 'var(--yellow)';
-  return 'var(--red)';
-}
-// ====== API ======
-const API = {
-  async get(url) { const r = await fetch(url); if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||r.statusText); return r.json(); },
-  async post(url, data) {
-    const r = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data) });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
-    return r.json();
-  },
-  async delete(url) {
-    const r = await fetch(url, { method:'DELETE' });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
-    return r.json();
-  },
-  async upload(url, formData) {
-    const r = await fetch(url, { method:'POST', body:formData });
-    if (!r.ok) throw new Error((await r.json().catch(()=>({}))).detail||r.statusText);
-    return r.json();
-  }
-};
+<!-- Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
-// ====== Toast ======
-let tTimer;
-function toast(msg) {
-  const el = document.getElementById('toast');
-  el.textContent = msg; el.classList.add('show');
-  clearTimeout(tTimer); tTimer = setTimeout(()=>el.classList.remove('show'), 3000);
-}
+<!-- Application Scripts -->
+<script src="js/utils.js"></script>
+<script src="js/api.js"></script>
+<script src="js/app.js"></script>
+<script src="js/interview.js"></script>
+<script src="js/research.js"></script>
+<script src="js/history.js"></script>
+<script src="js/settings.js"></script>
 
-// ====== Tab ======
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => switchTab(tab.dataset.tab));
-});
-
-// ====== Round Selector ======
-document.querySelectorAll('.round-option').forEach(el => {
-  el.addEventListener('click', () => {
-    document.querySelectorAll('.round-option').forEach(o => o.classList.remove('selected'));
-    el.classList.add('selected');
-    el.querySelector('input').checked = true;
-  });
-});
-// 默认选中技术一面
-document.querySelector('.round-option[data-round="tech_1"]')?.classList.add('selected');
-
-// ====== Status ======
-async function checkStatus() {
-  try {
-    const s = await API.get('/api/status');
-    const dot = document.getElementById('statusDot');
-    const txt = document.getElementById('statusText');
-    if (s.provider === 'mimo' && s.mimo_ready) { dot.className='dot green'; txt.textContent='MiMo 已连接'; }
-    else if (s.provider === 'deepseek' && s.deepseek_ready) { dot.className='dot green'; txt.textContent='DeepSeek 已连接'; }
-    else if (s.mimo_ready || s.deepseek_ready) { dot.className='dot yellow'; txt.textContent='未完全配置'; }
-    else { dot.className='dot red'; txt.textContent='未配置 API'; }
-    document.getElementById('providerSelect').value = s.provider;
-  } catch(e) {
-    document.getElementById('statusDot').className='dot red';
-    document.getElementById('statusText').textContent='未连接';
-  }
-}
-
-// ====== Resume Upload ======
-document.getElementById('resumeUpload').addEventListener('change', async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const formData = new FormData();
-  formData.append('file', file);
-  try {
-    const result = await API.upload('/api/resume/parse', formData);
-    document.getElementById('resumeInput').value = result.text;
-    toast('简历已识别');
-  } catch(e) {
-    toast('简历识别失败: ' + e.message);
-  }
-});
-
-// ====== Research ======
-document.getElementById('researchBtn').addEventListener('click', async () => {
-  const pos = document.getElementById('positionInput').value.trim();
-  if (!pos) { toast('请先输入目标岗位'); return; }
-  const btn = document.getElementById('researchBtn');
-  btn.disabled = true; btn.textContent = '分析中...';
-  document.getElementById('researchResult').innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top:8px">AI 正在分析岗位要求...<br><span style="font-size:12px">约需 15-30 秒</span></div></div>';
-  try {
-    const data = await API.post('/api/research', { position: pos });
-    let html = '<div style="background:var(--surface2);border-radius:var(--radius);padding:16px;margin-top:8px">';
-    html += `<div style="font-weight:600;font-size:16px;margin-bottom:8px">${data.position || pos}</div>`;
-    if (data.summary) html += `<p style="font-size:13px;color:var(--text2);margin-bottom:8px">${data.summary}</p>`;
-    if (data.required_skills && data.required_skills.length) {
-      html += '<div style="margin-bottom:8px">' + data.required_skills.map(s => `<span class="skill-tag">${s}</span>`).join('') + '</div>';
-    }
-    if (data.tech_stack && data.tech_stack.length) {
-      html += `<div style="font-size:13px;color:var(--text2);margin-bottom:4px">技术栈: ${data.tech_stack.join('、')}</div>`;
-    }
-    html += '<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" id="refreshResearchBtn">重新分析</button></div>';
-    html += '</div>';
-    document.getElementById('researchResult').innerHTML = html;
-    window._currentProfile = data;
-    document.getElementById('refreshResearchBtn')?.addEventListener('click', refreshResearch);
-    toast('岗位分析完成');
-  } catch(e) {
-    document.getElementById('researchResult').innerHTML = `<div style="color:var(--red);font-size:13px">分析失败: ${e.message}</div>`;
-  }
-  btn.disabled = false; btn.textContent = '开始分析岗位';
-});
-
-// ====== 重新分析（跳过缓存）=====
-async function refreshResearch() {
-  const pos = document.getElementById('positionInput').value.trim();
-  if (!pos) { toast('请先输入目标岗位'); return; }
-  const container = document.getElementById('researchResult');
-  container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top:8px">AI 正在重新分析...<br><span style="font-size:12px">约需 15-30 秒</span></div></div>';
-  try {
-    const data = await API.post('/api/research', { position: pos, refresh: true });
-    let html = '<div style="background:var(--surface2);border-radius:var(--radius);padding:16px;margin-top:8px">';
-    html += `<div style="font-weight:600;font-size:16px;margin-bottom:8px">${data.position || pos}</div>`;
-    if (data.summary) html += `<p style="font-size:13px;color:var(--text2);margin-bottom:8px">${data.summary}</p>`;
-    if (data.required_skills && data.required_skills.length) {
-      html += '<div style="margin-bottom:8px">' + data.required_skills.map(s => `<span class="skill-tag">${s}</span>`).join('') + '</div>';
-    }
-    if (data.tech_stack && data.tech_stack.length) {
-      html += `<div style="font-size:13px;color:var(--text2);margin-bottom:4px">技术栈: ${data.tech_stack.join('、')}</div>`;
-    }
-    html += '<div style="margin-top:8px"><button class="btn btn-secondary btn-sm" id="refreshResearchBtn2">重新分析</button></div>';
-    html += '</div>';
-    container.innerHTML = html;
-    window._currentProfile = data;
-    document.getElementById('refreshResearchBtn2').addEventListener('click', refreshResearch);
-    toast('重新分析完成');
-  } catch(e) {
-    container.innerHTML = `<div style="color:var(--red);font-size:13px">分析失败: ${e.message}</div>`;
-  }
-}
-
-// ====== Settings ======
-document.getElementById('saveMimoKey').addEventListener('click', async () => {
-  const key = document.getElementById('mimoKeyInput').value.trim();
-  if (!key) { toast('请输入 API Key'); return; }
-  await API.post('/api/config', { mimo_api_key: key });
-  toast('MiMo API Key 已保存');
-  await checkStatus();
-});
-
-document.getElementById('saveDeepseekKey').addEventListener('click', async () => {
-  const key = document.getElementById('deepseekKeyInput').value.trim();
-  if (!key) { toast('请输入 API Key'); return; }
-  await API.post('/api/config', { deepseek_api_key: key });
-  toast('DeepSeek API Key 已保存');
-  await checkStatus();
-});
-
-document.getElementById('providerSelect').addEventListener('change', async (e) => {
-  await API.post('/api/config', { provider: e.target.value });
-  toast('已切换到 ' + e.target.value);
-  await checkStatus();
-});
-
-// ====== 面试状态 ======
-let currentSessionId = null;
-let currentQuestionIndex = 0;
-let interviewActive = false;
-let interviewStartTime = null;
-let timerInterval = null;
-let isWrittenRound = false;
-let totalQuestions = 0;
-const ROUND_TOTALS = { written: 20, tech_1: 8, tech_2: 6, comprehensive: 6 };
-
-// 面试中离开保护
-window.addEventListener('beforeunload', (e) => {
-  if (interviewActive) { e.preventDefault(); e.returnValue = ''; }
-});
-
-function switchTab(name) {
-  if (interviewActive && name !== 'interview' && !confirm('面试进行中，切换页面将中断面试，确定吗？')) return;
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(t=>t.classList.remove('active'));
-  document.querySelector(`[data-tab="${name}"]`).classList.add('active');
-  document.getElementById('tab-'+name).classList.add('active');
-}
-
-// 面试计时器
-function startTimer() {
-  interviewStartTime = Date.now();
-  const el = document.getElementById('interviewTimer');
-  clearInterval(timerInterval);
-  timerInterval = setInterval(() => {
-    if (!interviewStartTime) return;
-    const elapsed = Math.floor((Date.now() - interviewStartTime) / 1000);
-    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
-    const s = String(elapsed % 60).padStart(2, '0');
-    el.textContent = `${m}:${s}`;
-  }, 1000);
-}
-function stopTimer() {
-  clearInterval(timerInterval);
-  timerInterval = null;
-  interviewStartTime = null;
-  document.getElementById('interviewTimer').textContent = '00:00';
-}
-
-// ====== 开始面试 ======
-document.getElementById('startInterviewBtn').addEventListener('click', async () => {
-  const resume = document.getElementById('resumeInput').value.trim();
-  const position = document.getElementById('positionInput').value.trim();
-  const company = document.getElementById('companyInput').value.trim();
-
-  if (!resume) { toast('请先填写或上传简历'); return; }
-  if (!position) { toast('请填写目标岗位'); return; }
-
-  const btn = document.getElementById('startInterviewBtn');
-  btn.disabled = true; btn.textContent = '开始面试...';
-
-  try {
-    const selectedRound = document.querySelector('input[name="round"]:checked')?.value || 'tech_1';
-    const result = await API.post('/api/interview/start', {
-      resume, position, company,
-      profile: window._currentProfile || {},
-      round: selectedRound,
-    });
-    currentSessionId = result.session_id;
-    currentQuestionIndex = 0;
-    interviewActive = true;
-    isWrittenRound = result.round === 'written';
-    totalQuestions = ROUND_TOTALS[result.round] || 8;
-    startTimer();
-
-    // 设置轮次标签
-    const roundNames = { 'written':'笔试', 'tech_1':'技术一面', 'tech_2':'技术二面', 'comprehensive':'综合面' };
-    document.getElementById('roundLabel').textContent = roundNames[result.round] || result.round;
-
-    // 切换到面试 Tab
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-    document.querySelector('[data-tab="interview"]').classList.add('active');
-    document.getElementById('tab-interview').classList.add('active');
-
-    showQuestion(result.question, 0, result.audio_url);
-    toast('面试已开始');
-  } catch(e) {
-    toast('启动面试失败: ' + e.message);
-  }
-  btn.disabled = false; btn.textContent = '开始模拟面试';
-});
-
-function showQuestion(question, index, audioUrl) {
-  const area = document.getElementById('interviewArea');
-  window._lastQuestion = question;
-  document.getElementById('questionCount').textContent = `第 ${index + 1} / ${totalQuestions} 题`;
-
-  let meta = '';
-  if (question.difficulty) {
-    const diffMap = {easy:'简单', medium:'中等', hard:'困难'};
-    meta += `<span class="q-meta">${question.type||''} · ${diffMap[question.difficulty]||question.difficulty} · ${question.topic||''}</span>`;
-  }
-
-  let audioHtml = '';
-  if (audioUrl) {
-    audioHtml = `<div style="margin-top:12px"><audio controls style="width:100%;height:36px"><source src="${audioUrl}" type="audio/mpeg"></audio></div>`;
-  }
-
-  // 选择题/判断题渲染
-  let answerHtml = '';
-  if (question.options) {
-    let optsHtml = '';
-    for (const [key, val] of Object.entries(question.options)) {
-      optsHtml += `<label style="display:flex;align-items:center;gap:8px;padding:10px 12px;margin:4px 0;background:var(--surface2);border-radius:8px;cursor:pointer;border:2px solid var(--border);transition:all .2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-        <input type="radio" name="writtenAnswer" value="${esc(key)}" style="width:16px;height:16px;accent-color:var(--accent)">
-        <span style="font-size:14px"><strong>${esc(key)}.</strong> ${esc(val)}</span>
-      </label>`;
-    }
-    answerHtml = `<div class="form-group">
-      <label>请选择答案</label>
-      <div id="optionsContainer">${optsHtml}</div>
-    </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>
-    </div>`;
-  } else {
-    answerHtml = `<div class="form-group">
-      <label>你的回答</label>
-      <textarea id="answerInput" rows="5" placeholder="输入你的回答...（Ctrl+Enter 快捷提交）"></textarea>
-      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:4px">
-        <span>Ctrl+Enter 提交</span>
-        <span id="charCount">0 字</span>
-      </div>
-    </div>
-    <div style="display:flex;gap:10px">
-      <button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>
-    </div>`;
-  }
-
-  area.innerHTML = `
-    <div class="question-box">
-      <div class="q-label">${isWrittenRound ? '笔试题目' : '面试官提问'}</div>
-      <div class="q-text">${esc(question.question)}</div>
-      ${meta}
-      ${audioHtml}
-    </div>
-    ${answerHtml}
-    <div id="evaluationResult"></div>
-  `;
-
-  if (question.options) {
-    document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
-  } else {
-    const ta = document.getElementById('answerInput');
-    ta.addEventListener('keydown', (e) => { if (e.ctrlKey && e.key === 'Enter') submitAnswer(); });
-    ta.addEventListener('input', () => {
-      document.getElementById('charCount').textContent = ta.value.length + ' 字';
-    });
-    document.getElementById('submitAnswerBtn').addEventListener('click', submitAnswer);
-    ta.focus();
-  }
-}
-
-async function submitAnswer() {
-  let answer;
-  const questionObj = window._lastQuestion;
-  if (questionObj && questionObj.options) {
-    const selected = document.querySelector('input[name="writtenAnswer"]:checked');
-    if (!selected) { toast('请选择一个答案'); return; }
-    answer = selected.value;
-  } else {
-    answer = document.getElementById('answerInput').value.trim();
-    if (!answer) { toast('请先输入回答'); return; }
-  }
-
-  const btn = document.getElementById('submitAnswerBtn');
-  btn.disabled = true; btn.textContent = '评估中...';
-
-  try {
-    const result = await API.post('/api/interview/answer', {
-      session_id: currentSessionId,
-      question_index: currentQuestionIndex,
-      answer,
-    });
-
-    currentQuestionIndex = result.next_index;
-
-    // 显示评估结果
-    const evalBox = document.getElementById('evaluationResult');
-    const ev = result.evaluation;
-
-    if (isWrittenRound) {
-      // 笔试评估：显示对错 + 解析
-      const isCorrect = ev.correct;
-      const icon = isCorrect ? '&#10004;' : '&#10008;';
-      const color = isCorrect ? 'var(--green)' : 'var(--red)';
-      const label = isCorrect ? '回答正确' : '回答错误';
-      evalBox.innerHTML = `
-        <div class="feedback-box" style="border-left-color:${color}">
-          <div style="font-size:24px;color:${color};margin-bottom:8px">${icon} <span style="font-size:16px;font-weight:600">${label}</span></div>
-          <div style="font-size:13px;color:var(--text2);margin-bottom:6px"><strong>正确答案：</strong>${esc(ev.correct_answer)}</div>
-          <div style="font-size:13px;line-height:1.6;padding:10px;background:var(--surface);border-radius:6px"><strong>解析：</strong><br>${esc(ev.explanation)}</div>
-        </div>
-        <div style="margin-top:12px;display:flex;gap:10px">
-          <button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>
-          <button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>
-        </div>
-      `;
-    } else {
-      // 面试评估：多维度评分
-      evalBox.innerHTML = `
-        <div class="feedback-box">
-          <div class="score-row">
-            <span class="score-tag">综合 <span class="val" style="color:${scoreColor(ev.overall_score)}">${ev.overall_score}</span></span>
-            <span class="score-tag">技术 <span class="val" style="color:${scoreColor(ev.technical_score)}">${ev.technical_score}</span></span>
-            <span class="score-tag">逻辑 <span class="val" style="color:${scoreColor(ev.logic_score)}">${ev.logic_score}</span></span>
-            <span class="score-tag">深度 <span class="val" style="color:${scoreColor(ev.depth_score)}">${ev.depth_score}</span></span>
-            <span class="score-tag">表达 <span class="val" style="color:${scoreColor(ev.communication_score)}">${ev.communication_score}</span></span>
-          </div>
-          <div style="font-size:13px;line-height:1.6">
-            <p>${esc(ev.summary)}</p>
-            ${ev.strengths && ev.strengths.length ? '<div style="margin-top:8px"><strong>优点：</strong> '+ev.strengths.map(esc).join('、')+'</div>' : ''}
-            ${ev.improvements && ev.improvements.length ? '<div style="margin-top:4px"><strong>改进建议：</strong> '+ev.improvements.map(esc).join('、')+'</div>' : ''}
-            ${ev.reference_answer ? '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px"><strong>参考回答：</strong><br>'+esc(ev.reference_answer)+'</div>' : ''}
-          </div>
-          <div style="margin-top:12px;display:flex;gap:10px">
-            <button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>
-            <button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>
-          </div>
-        </div>
-      `;
-    }
-    document.getElementById('nextQuestionBtn').addEventListener('click', () => {
-      showQuestion(result.next_question, result.next_index, result.audio_url);
-    });
-    document.getElementById('endFromFeedbackBtn').addEventListener('click', endInterview);
-    btn.style.display = 'none';
-  } catch(e) {
-    toast('评估失败: ' + e.message);
-    btn.disabled = false; btn.textContent = '提交回答';
-  }
-}
-
-// ====== 结束面试 ======
-document.getElementById('endInterviewBtn').addEventListener('click', endInterview);
-
-async function endInterview() {
-  if (!currentSessionId) return;
-  if (!confirm('确定结束面试并生成报告？')) return;
-
-  // 显示生成报告中的提示
-  const area = document.getElementById('interviewArea');
-  area.innerHTML = `
-    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">
-      <div class="spinner" style="width:40px;height:40px;border-width:4px"></div>
-      <div style="margin-top:16px;font-size:16px;font-weight:600">正在生成报告...</div>
-      <div style="margin-top:8px;font-size:13px;color:var(--text2)">AI 正在评估你的回答并生成面试总结</div>
-    </div>
-  `;
-  document.getElementById('questionCount').textContent = '面试结束';
-  document.getElementById('submitAnswerBtn') && (document.getElementById('submitAnswerBtn').disabled = true);
-
-  try {
-    const result = await API.post('/api/interview/end', {
-      session_id: currentSessionId,
-    });
-    showReport(result);
-    toast('面试已结束，报告已生成');
-  } catch(e) {
-    toast('结束面试失败: ' + e.message);
-    // 恢复加载前的状态
-    showQuestion(
-      window._lastQuestion || {question:'请重试', type:'', difficulty:'', topic:''},
-      currentQuestionIndex,
-      null
-    );
-  }
-}
-
-function showReport(result) {
-  const r = result.report || {};
-  const area = document.getElementById('interviewArea');
-  const historyLen = (result.history || []).length;
-  document.getElementById('questionCount').textContent = `面试结束 · 共 ${historyLen} 题`;
-
-  const roundNames = { 'written':'笔试', 'tech_1':'技术一面', 'tech_2':'技术二面', 'comprehensive':'综合面' };
-  let html = '<div class="card" style="border-left:3px solid var(--accent)">';
-  html += `<h2 style="font-size:18px;text-transform:none;color:var(--text)">面试报告</h2>`;
-  if (result.round) html += `<div style="font-size:12px;color:var(--accent2);margin-bottom:8px">轮次：${roundNames[result.round] || result.round}</div>`;
-
-  // 总分
-  const sc = r.score_breakdown || {};
-  html += `<div class="score-row" style="margin:12px 0">
-    <span class="score-tag">总评 <span class="val" style="color:${scoreColor(r.overall_score)}">${r.overall_score||0}</span></span>
-    <span class="score-tag">技术 <span class="val" style="color:${scoreColor(sc.technical)}">${sc.technical||0}</span></span>
-    <span class="score-tag">逻辑 <span class="val" style="color:${scoreColor(sc.logic)}">${sc.logic||0}</span></span>
-    <span class="score-tag">深度 <span class="val" style="color:${scoreColor(sc.depth)}">${sc.depth||0}</span></span>
-    <span class="score-tag">表达 <span class="val" style="color:${scoreColor(sc.communication)}">${sc.communication||0}</span></span>
-  </div>`;
-
-  if (r.final_verdict) html += `<p style="font-size:14px;line-height:1.6;margin-bottom:12px">${esc(r.final_verdict)}</p>`;
-  if (r.skill_summary) html += `<p style="font-size:13px;color:var(--text2);margin-bottom:12px">${esc(r.skill_summary)}</p>`;
-
-  if (r.strengths && r.strengths.length) {
-    html += `<div style="margin-bottom:8px"><strong style="color:var(--green)">优势</strong><br><span style="font-size:13px">${r.strengths.map(esc).join('；')}</span></div>`;
-  }
-  if (r.weaknesses && r.weaknesses.length) {
-    html += `<div style="margin-bottom:8px"><strong style="color:var(--yellow)">待提升</strong><br><span style="font-size:13px">${r.weaknesses.map(esc).join('；')}</span></div>`;
-  }
-  if (r.preparation_advice && r.preparation_advice.length) {
-    html += `<div style="margin-bottom:12px"><strong>复习建议</strong><br><ul style="font-size:13px;padding-left:20px;margin-top:4px">`;
-    r.preparation_advice.forEach(a => { html += `<li>${esc(a)}</li>`; });
-    html += `</ul></div>`;
-  }
-  if (r.recommended_positions && r.recommended_positions.length) {
-    html += `<div style="font-size:13px;color:var(--text2)">推荐方向：${r.recommended_positions.map(esc).join('、')}</div>`;
-  }
-
-  // 历史问答
-  const history = result.history || [];
-  if (history.length) {
-    html += `<h2 style="font-size:16px;text-transform:none;color:var(--text);margin-top:20px">问答回顾</h2>`;
-    history.forEach((h, i) => {
-      html += `<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px">
-        <div style="font-size:12px;color:var(--accent2);margin-bottom:4px">第 ${i+1} 题 (${h.type||''})</div>
-        <div style="font-size:13px;margin-bottom:6px"><strong>问：</strong>${esc(h.q)}</div>
-        <div style="font-size:13px;color:var(--text2);margin-bottom:4px"><strong>答：</strong>${esc(h.a)}</div>
-        <div class="score-tag" style="display:inline-block">得分 ${h.score?.overall_score||0}</div>
-      </div>`;
-    });
-  }
-
-  html += `<div style="margin-top:16px;display:flex;gap:10px">
-    <button class="btn btn-primary" style="flex:1" onclick="switchTab('setup')">返回首页</button>
-    <button class="btn btn-secondary" id="copyReportBtn">复制报告</button>
-  </div>`;
-  html += '</div>';
-  area.innerHTML = html;
-  document.getElementById('copyReportBtn')?.addEventListener('click', () => copyReport(area));
-  interviewActive = false;
-  stopTimer();
-}
-
-// ====== 历史记录 ======
-async function loadHistory() {
-  const container = document.getElementById('historyList');
-  try {
-    const result = await API.get('/api/history');
-    const sessions = result.sessions || [];
-    if (!sessions.length) {
-      container.innerHTML = '<div class="empty-state">暂无面试记录</div>';
-      return;
-    }
-    let html = '';
-    sessions.forEach(s => {
-      const roundNames = { 'written':'笔试', 'tech_1':'技术一面', 'tech_2':'技术二面', 'comprehensive':'综合面' };
-      html += `<div class="history-item" style="background:var(--surface2);border-radius:8px;padding:12px;margin-bottom:8px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start">
-          <div style="flex:1;cursor:pointer" onclick="viewSession('${esc(s.id)}')">
-            <div style="font-weight:600;margin-bottom:4px">${esc(s.position)}</div>
-            <div style="font-size:12px;color:var(--text2)">
-              ${s.company ? esc(s.company)+' · ' : ''}${roundNames[s.round] || s.round || ''}${s.round ? ' · ' : ''}${esc(s.date)} · ${s.total_questions} 题 · 评分 ${s.overall_score}
-            </div>
-          </div>
-          <button class="btn btn-danger btn-sm" style="margin-left:8px;flex-shrink:0" onclick="deleteSession('${esc(s.id)}')">删除</button>
-        </div>
-      </div>`;
-    });
-    container.innerHTML = html;
-  } catch(e) {
-    container.innerHTML = `<div style="color:var(--red);font-size:13px">加载失败: ${e.message}</div>`;
-  }
-}
-
-async function viewSession(sessionId) {
-  try {
-    const roundNames = { 'written':'笔试', 'tech_1':'技术一面', 'tech_2':'技术二面', 'comprehensive':'综合面' };
-    let html = `<div style="margin-bottom:8px">
-      <button class="btn btn-secondary btn-sm" onclick="loadHistory()">← 返回列表</button>
-    </div>
-    <div class="card">
-      <h2 style="text-transform:none;color:var(--text)">${esc(s.position)}</h2>
-      <div style="font-size:13px;color:var(--text2);margin-bottom:12px">${s.company ? esc(s.company)+' · ':''}${esc(s.date)}${s.round ? ' · <span style="color:var(--accent2)">'+(roundNames[s.round]||s.round)+'</span>' : ''}</div>`;
-
-    if (s.report) {
-      const r = s.report;
-      const sc = r.score_breakdown || {};
-      html += `<div class="score-row">
-        <span class="score-tag">总评 <span class="val" style="color:${scoreColor(r.overall_score)}">${r.overall_score||0}</span></span>
-        <span class="score-tag">技术 <span class="val" style="color:${scoreColor(sc.technical)}">${sc.technical||0}</span></span>
-        <span class="score-tag">逻辑 <span class="val" style="color:${scoreColor(sc.logic)}">${sc.logic||0}</span></span>
-        <span class="score-tag">深度 <span class="val" style="color:${scoreColor(sc.depth)}">${sc.depth||0}</span></span>
-        <span class="score-tag">表达 <span class="val" style="color:${scoreColor(sc.communication)}">${sc.communication||0}</span></span>
-      </div>`;
-      if (r.final_verdict) html += `<p style="font-size:13px;margin-top:8px">${r.final_verdict}</p>`;
-    }
-
-    (s.history||[]).forEach((h, i) => {
-      const answerSnippet = (h.a||'').slice(0,200);
-      html += `<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px">
-        <div style="font-size:12px;color:var(--accent2)">第 ${i+1} 题 · 得分 ${h.score?.overall_score||0}</div>
-        <div style="font-size:13px;margin:4px 0"><strong>问：</strong>${esc(h.q)}</div>
-        <div style="font-size:13px;color:var(--text2)"><strong>答：</strong>${esc(answerSnippet)}${h.a && h.a.length>200?'...':''}</div>
-      </div>`;
-    });
-
-    html += '</div>';
-    document.getElementById('historyList').innerHTML = html;
-  } catch(e) {
-    toast('加载失败: ' + e.message);
-  }
-}
-
-async function deleteSession(sessionId) {
-  if (!confirm('确定删除这条面试记录？')) return;
-  try {
-    await API.delete(`/api/history/${sessionId}`);
-    toast('已删除');
-    loadHistory();
-  } catch(e) {
-    toast('删除失败: ' + e.message);
-  }
-}
-
-function copyReport(reportEl) {
-  const text = reportEl.textContent || reportEl.innerText;
-  navigator.clipboard.writeText(text).then(() => toast('报告已复制到剪贴板')).catch(() => toast('复制失败'));
-}
-
-// Tab 切换到历史时加载
-document.querySelector('[data-tab="history"]').addEventListener('click', () => {
-  setTimeout(loadHistory, 100);
-});
-
-// ====== Init ======
-checkStatus();
-</script>
 </body>
 </html>

@@ -2,17 +2,73 @@
 
 ## 架构概述
 
-前端是单页应用（SPA），全部代码在单个 `index.html` 文件中，无构建步骤、无框架依赖。
+前端是模块化单页应用（SPA），无框架、无构建步骤。所有代码挂载在 `window.MockMate` 命名空间下。
 
 ```
-index.html
-  ├── <style>      → 全部 CSS（暗色主题，CSS 变量）
-  ├── <body>       → HTML 结构
-  │   ├── header   → 标题 + 状态指示
-  │   ├── .tabs    → 导航标签（准备面试/模拟面试/历史记录/设置）
-  │   └── .tab-content × 4 → 每个标签页的内容
-  └── <script>     → 全部 JavaScript
+frontend/
+├── index.html              — HTML 骨架（仅结构，不包含 style/script）
+├── css/
+│   └── style.css           — 全部样式
+└── js/
+    ├── app.js              — 主入口：初始化、Tab 切换、全局状态、快捷键
+    ├── api.js              — API 层（get/post/delete/upload）
+    ├── utils.js            — 工具函数（esc、toast、scoreColor、ROUND_NAMES 常量）
+    ├── interview.js        — 面试流程（开始→出题→提交→评估→结束→报告）
+    ├── research.js         — 岗位画像搜索 + 结果渲染
+    ├── history.js          — 历史记录 + Chart.js 图表 + 统计摘要
+    └── settings.js         — API Key 保存 + 提供商切换
 ```
+
+### 依赖关系
+
+```
+utils.js  ←──  api.js  ←──  app.js  ←──  interview.js
+                                        research.js
+                                        history.js  (依赖 Chart.js CDN)
+                                        settings.js
+```
+
+### 命名空间
+
+所有模块通过 IIFE 挂载到 `window.MockMate`：
+
+```javascript
+window.MockMate = window.MockMate || {};
+(function (M) {
+  // 模块代码
+  M.ModuleName = { ... };
+})(window.MockMate);
+```
+
+- `MockMate.Utils` — 工具函数
+- `MockMate.API` — HTTP 请求
+- `MockMate.App` — 主控制器
+- `MockMate.Interview` — 面试逻辑
+- `MockMate.Research` — 岗位研究
+- `MockMate.History` — 历史记录 & 图表
+- `MockMate.Settings` — 设置
+
+### HTML 加载顺序
+
+```html
+<!-- 1. Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- 2. 基础模块（无依赖） -->
+<script src="js/utils.js"></script>
+<!-- 3. API 层（依赖 utils） -->
+<script src="js/api.js"></script>
+<!-- 4. 主入口（依赖 api + utils） -->
+<script src="js/app.js"></script>
+<!-- 5. 业务模块（依赖 app） -->
+<script src="js/interview.js"></script>
+<script src="js/research.js"></script>
+<script src="js/history.js"></script>
+<script src="js/settings.js"></script>
+```
+
+所有模块在 `DOMContentLoaded` 时通过 `MockMate.init()` 统一初始化。
+
+---
 
 ## Tab 系统
 
@@ -20,21 +76,45 @@ index.html
 // 4 个 Tab
 "setup"       → 准备面试（填信息+选轮次+开始面试）
 "interview"   → 模拟面试（出题+回答+评分）
-"history"     → 历史记录（查看过往面试）
+"history"     → 历史记录（统计+图表+查看过往面试）
 "settings"    → 设置（API Key + 提供商切换）
 
-// 切换逻辑
-switchTab(name) → 切换 active class
+// 切换逻辑在 app.js 中
+MockMate.switchTab(name) → 切换 active class
 面试中切 Tab → 确认弹窗保护
 ```
 
 ### 新增 Tab
 
-1. HTML 添加 `<button class="tab" data-tab="mytab">`
-2. HTML 添加 `<div class="tab-content" id="tab-mytab">`
-3. JS 中 `switchTab()` 自动处理（基于 data-tab 属性）
+1. HTML：添加 `<button class="tab" data-tab="mytab">`
+2. HTML：添加 `<div class="tab-content" id="tab-mytab">`
+3. JS：新建模块文件，在 `init()` 中绑定事件
+4. 在 `index.html` 的 `<script>` 标签区引入新文件
+5. `switchTab()` 基于 data-tab 属性自动处理
+
+---
 
 ## CSS 规范
+
+所有样式在 `css/style.css` 中，按功能分区：
+
+| 分区 | 内容 |
+|------|------|
+| 主题变量 | `:root { --bg, --surface, --accent, ... }` |
+| 基础重置 | `*`, `body`, `.app` |
+| Header | 标题、状态指示灯 |
+| Card | `.card` 卡片容器 |
+| Tabs | 标签导航 |
+| Buttons | `.btn`, `.btn-primary`, `.btn-secondary`, `.btn-danger`, `.btn-sm` |
+| Forms | `input`, `textarea`, `select`, `.form-group` |
+| States | `.empty-state`, `.loading`, `.spinner` |
+| Toast | 底部提示 |
+| Profile | `.skill-tag`, `.topic-item`, `.focus-tag`, `.profile-grid` |
+| Round Selector | 轮次选择器 |
+| Interview | 进度条、倒计时、题目框、反馈框、录音按钮 |
+| Settings | 设置行布局 |
+| History | 统计网格、图表容器、历史卡片、薄弱点 |
+| Responsive | 768px / 480px 断点 |
 
 ### 主题变量
 
@@ -42,7 +122,7 @@ switchTab(name) → 切换 active class
 :root {
   --bg: #0f1117;       /* 背景 */
   --surface: #1a1d29;  /* 卡片底色 */
-  --surface2: #232738;  /* 次级底色 */
+  --surface2: #232738; /* 次级底色 */
   --border: #2e3348;   /* 边框 */
   --text: #e4e6f0;     /* 主文字 */
   --text2: #8b8fa8;    /* 辅助文字 */
@@ -70,50 +150,64 @@ switchTab(name) → 切换 active class
 
 ### 响应式
 
-- 640px 断点：单列布局
-- `#roundSelector` 在移动端切换为单列
+- 768px 断点：统计卡片 4列→2列，图表高度缩小
+- 480px 断点：单列布局，轮次选择器单列，设置行堆叠，按钮全宽
+- 所有操作按钮 `min-height: 44px`（touch target 标准）
 
-## API 层
-
-```javascript
-const API = {
-  get(url)      → fetch GET → JSON
-  post(url, data) → fetch POST (JSON body) → JSON
-  delete(url)   → fetch DELETE → JSON
-  upload(url, formData) → fetch POST (multipart) → JSON
-};
-```
-
-所有请求自动处理错误，非 2xx 响应抛出 `Error(detail)`。
+---
 
 ## 状态管理
 
-全局变量（在 `<script>` 顶部）：
+全局状态存储在 `MockMate.state` 对象中（定义于 `app.js`）：
 
 ```javascript
-currentSessionId     // 当前面试会话 ID
-currentQuestionIndex // 当前题号
-interviewActive      // 面试是否进行中
-interviewStartTime   // 面试开始时间
-timerInterval        // 计时器句柄
-_window._currentProfile // 当前岗位画像数据
+MockMate.state = {
+  currentSessionId:     null,    // 当前面试会话 ID
+  currentQuestionIndex: 0,      // 当前题号
+  interviewActive:      false,   // 面试是否进行中
+  interviewStartTime:   null,    // 面试开始时间戳
+  timerInterval:        null,    // 计时器句柄
+  isWrittenRound:       false,   // 是否为笔试轮次
+  totalQuestions:       0,       // 总题数
+  currentProfile:       null,    // 当前岗位画像
+  countdownInterval:    null,    // 倒计时句柄
+  countdownRemaining:   0,       // 倒计时剩余秒数
+  countdownPaused:      false,   // 倒计时是否暂停
+};
 ```
 
-### 关键函数
+表单记忆和草稿使用 `MockMate.Utils.ls` 操作 localStorage。
 
-| 函数 | 触发时机 | 职责 |
-|------|---------|------|
-| `checkStatus()` | 页面加载 | 获取服务状态，更新指示灯 |
-| `switchTab(name)` | Tab 点击 | 切换页面，保护进行中的面试 |
-| `startInterview()` | 点击"开始模拟面试" | 调 API 创建会话，切到面试 Tab |
-| `showQuestion(question, index, audioUrl)` | 收到新题 | 渲染题目 UI |
-| `submitAnswer()` | Ctrl+Enter 或点击提交 | 提交回答，展示评分 |
-| `endInterview()` | 点击"结束面试" | 生成报告，清理状态 |
-| `showReport(result)` | 收到报告 | 渲染完整报告 |
-| `loadHistory()` | 切到历史 Tab | 加载面试记录列表 |
-| `viewSession(id)` | 点击记录 | 查看单条记录详情 |
-| `copyReport()` | 点击"复制报告" | 报告内容复制到剪贴板 |
-| `refreshResearch()` | 点击"重新分析" | 跳过缓存重新分析岗位 |
+---
+
+## 关键函数
+
+| 模块 | 函数 | 触发时机 | 职责 |
+|------|------|---------|------|
+| app | `MockMate.init()` | DOMContentLoaded | 初始化所有模块 |
+| app | `MockMate.switchTab(name)` | Tab 点击 | 切换页面，保护面试 |
+| app | `MockMate.checkStatus()` | 页面加载 | 获取服务状态，更新指示灯 |
+| app | `MockMate.restoreFormMemory()` | 页面加载 | 从 localStorage 恢复表单数据 |
+| app | `MockMate.clearLocalData()` | 点击按钮 | 清除所有本地缓存 |
+| interview | `I.startInterview()` | 点击"开始模拟面试" | 调 API 创建会话，切到面试 Tab |
+| interview | `I.showQuestion(q, idx, audio)` | 收到新题 | 渲染题目 + 进度条 + 倒计时 |
+| interview | `I.submitAnswer()` | Ctrl+Enter / 点击提交 | 提交回答，展示评分 |
+| interview | `I.endInterview()` | 点击"结束面试" | 生成报告，清理状态 |
+| interview | `I.showReport(result)` | 收到报告 | 渲染完整报告 |
+| interview | `I.downloadReport(result)` | 点击"下载报告" | 生成 .txt 文件下载 |
+| research | `R.doResearch(refresh)` | 点击分析按钮 | 搜索岗位画像 |
+| research | `R.renderProfileCard(data)` | 搜索完成 | 渲染完整画像卡片 |
+| history | `H.loadHistory()` | 切到历史 Tab | 加载记录列表 + 图表 |
+| history | `H.viewSession(id)` | 点击记录 | 查看单条详情 + 雷达图 |
+| history | `H.deleteSession(id)` | 点击删除 | 删除记录 |
+| history | `H.renderStatsSummary()` | 渲染时 | 统计摘要 4 卡片 |
+| history | `H.renderTrendBarChart()` | 渲染时 | Chart.js 柱状图 |
+| history | `H.renderTrendLineChart()` | 渲染时 | Chart.js 折线图 |
+| history | `H.renderRadarChart()` | 查看详情 | Chart.js 雷达图 |
+| settings | `S.saveMimoKey()` | 点击保存 | 更新 MiMo API Key |
+| settings | `S.saveDeepseekKey()` | 点击保存 | 更新 DeepSeek API Key |
+
+---
 
 ## 面试流程状态机
 
@@ -124,73 +218,86 @@ IDLE → STARTING → QUESTION → ANSWERING → EVALUATING → QUESTION (循环
   (通过 switchTab 回到 setup)
 ```
 
-- `interviewActive = true` 时阻止意外离开（`beforeunload` 事件）
-- 结束面试后 `interviewActive = false`
+- `MockMate.state.interviewActive = true` 时阻止离开（`beforeunload` 事件）
+- 结束面试后重置状态
+- 倒计时到 0 自动提交当前 textarea 内容
+- 草稿实时保存到 localStorage，刷新后可恢复
 
-## 轮次选择器
+---
 
-```html
-<!-- 4 个 radio，网格布局 2×2 -->
-round-option[data-round="tech_1"]         → 技术一面
-round-option[data-round="tech_2"]         → 技术二面
-round-option[data-round="comprehensive"]  → 综合面
-round-option[data-round="written"]        → 笔试
-```
+## Chart.js 图表
 
-选中高亮：`.round-option.selected { border-color: var(--accent); }`
+### 图表类型
 
-默认选中：技术一面（`tech_1`）
+| 图表 | Chart.js 类型 | 位置 | 数据来源 |
+|------|-------------|------|---------|
+| 分数趋势 | `bar` | 历史 Tab 顶部 | sessions 列表的 `overall_score` |
+| 分数走势 | `line` | 历史 Tab 顶部 | sessions 按时间排列的分数 |
+| 能力雷达 | `radar` | 面试详情页 | report 的 `score_breakdown` |
 
-### 轮次名称映射
+### 图表管理
 
-```javascript
-const roundNames = {
-  'written': '笔试',
-  'tech_1': '技术一面',
-  'tech_2': '技术二面',
-  'comprehensive': '综合面',
-};
-```
+- 实例存储在 `MockMate.History._charts` 对象中
+- Tab 切换或重新加载时先 `destroy()` 旧实例
+- canvas 容器使用 `max-width: 100%`，Chart.js 自动响应式适配
 
-此映射在 `showReport`、`loadHistory`、`viewSession` 三处都有定义（各自独立作用域）。
+### 图表交互
 
-## 快捷键
+- 柱状图：点击柱子跳转到对应面试详情
+- 柱状图颜色根据分数动态着色（≥7 绿，4-6 黄，<4 红）
+- 折线图：显示分数变化趋势
+- 雷达图：五维度（技术/逻辑/深度/表达/综合）可视化
 
-| 快捷键 | 动作 |
+---
+
+## 功能特性
+
+### 面试增强
+
+| 功能 | 说明 |
+|------|------|
+| 进度条 | CSS transition 进度条，颜色随进度变化 |
+| 倒计时 | 笔试 90s / 面试 180s，最后 30s 红闪，到时自动提交 |
+| 点击计时器可暂停/继续 |
+| 草稿保存 | textarea 内容实时存 localStorage，刷新不丢失 |
+| 表单记忆 | 岗位/公司/简历内容自动保存和恢复 |
+| 报告下载 | 生成格式化 .txt 文件下载 |
+
+### 快捷键
+
+| 快捷键 | 功能 |
 |--------|------|
-| Ctrl+Enter | 提交回答 |
+| `Ctrl+Enter` | 提交回答 |
+| `Alt+1/2/3/4` | 切换 Tab |
+| `Escape` | 关闭 toast / 聚焦回答输入框 |
 
-注册方式：
-
-```javascript
-ta.addEventListener('keydown', (e) => {
-  if (e.ctrlKey && e.key === 'Enter') submitAnswer();
-});
-```
+---
 
 ## 新增功能指南
 
 ### 添加新的表单字段
 
 1. 在对应 Tab 的 HTML 中添加 `<div class="form-group">`
-2. 在 JS 中通过 `document.getElementById('xxx').value` 取值
+2. 在相关 JS 模块中通过 `document.getElementById('xxx').value` 取值
 3. 在 API 调用中加入新字段
 
 ### 添加新的后端 API
 
 1. 在 `backend/main.py` 添加路由
-2. 在 `frontend/index.html` 的 `API` 对象不用修改（`get/post/delete/upload` 已通用）
-3. 在 JS 中调用 `API.get('/api/new-endpoint')` 或 `API.post('/api/new-endpoint', data)`
+2. 直接使用 `MockMate.API.get/post/delete/upload`（无需修改前端 API 层）
+3. 在对应的 JS 模块中调用 `MockMate.API.post('/api/new-endpoint', data)`
 
-### 添加新的 Tab 页面
+### 添加新的 JS 模块
 
-1. HTML：添加 `.tab` 按钮 + `.tab-content` 容器
-2. JS：`switchTab()` 自动处理，无需额外注册
-3. 如果新 Tab 需要加载数据，在 Tab 的点击事件中用 `setTimeout(loadFn, 100)` 调用
+1. 创建 `frontend/js/mymodule.js`
+2. 使用 IIFE 模式挂载到 `MockMate` 命名空间
+3. 实现 `init()` 方法绑定事件
+4. 在 `index.html` 中引入（注意依赖顺序）
+5. 在 `app.js` 的 `init()` 中调用模块的 `init()`
 
 ### 修改面试题目展示
 
-编辑 `showQuestion()` 函数中的 HTML 模板字符串，题目数据格式：
+编辑 `interview.js` 的 `I.showQuestion()` 函数。题目数据格式：
 
 ```javascript
 {
@@ -198,13 +305,18 @@ ta.addEventListener('keydown', (e) => {
   type: "技术/行为/设计",
   difficulty: "easy/medium/hard",
   topic: "考察主题",
-  expected_points: ["要点1", "要点2"]
+  expected_points: ["要点1", "要点2"],
+  options: { "A": "选项A", ... },  // 仅笔试
+  correct_answer: "A",              // 仅笔试
 }
 ```
 
-## 注意
+---
 
-- 所有用户输入在渲染前通过 `esc()` 转义（基于 `textContent` + `innerHTML`），防止 XSS
-- `roundNames` 映射在多个函数中分别定义（非全局），修改时需同步更新
-- 避免在全局作用域添加变量，优先使用 `window._xxx` 或函数内局部变量
-- 模板字符串中 JS 表达式注意 `||` 运算符优先级，复杂表达式用括号包裹
+## 注意事项
+
+- 所有用户输入在渲染前通过 `MockMate.esc()` 转义（XSS 防护）
+- `ROUND_NAMES` 常量定义在 `utils.js`，全局唯一，修改无需同步多处
+- localStorage 操作通过 `MockMate.Utils.ls` 统一管理（key 自动加 `mockmate_` 前缀）
+- Chart.js 需在 JS 模块之前加载（CDN script 放在最前面）
+- 避免在全局作用域直接添加变量，统一使用 `MockMate.state` 或模块内部变量
