@@ -89,12 +89,10 @@ class InterviewEngine:
         question_num = len(history) + 1
         return self._parse_question(result, question_num, round_name)
 
-    async def evaluate_answer(self, question: str, answer: str, context: dict, round_name: str = "") -> dict:
+    async def evaluate_answer(self, question: str, answer: str, context: dict, round_name: str = "", question_data: dict = None) -> dict:
         """评估用户的回答"""
         if round_name == "written":
-            prompt = self._build_written_evaluation_prompt(question, answer)
-            result = await self.ai.written_eval([{"role": "user", "content": prompt}], max_tokens=1024)
-            return self._parse_written_evaluation(result)
+            return self._evaluate_written_direct(answer, question_data or {})
         prompt = self._build_evaluation_prompt(question, answer, context)
         result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
         return self._parse_evaluation(result)
@@ -149,10 +147,10 @@ class InterviewEngine:
 绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
 每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
 
-【重要】correct_answer 必须是题目客观正确的答案。你必须仔细确认正确选项后再填写，绝对不能随意填写！这是判卷的唯一依据，填错会导致误判。
+【重要】correct_answer 是你确认正确的选项字母。explanation 是解析（2-3句话）。这两个字段是判卷的唯一依据，必须准确无误！
 
 只输出 JSON:
-{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "（你确认正确的选项字母，如 B）"}}"""
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "正确选项字母", "explanation": "解析（2-3句话，解释为什么正确）"}}"""
 
     def _build_next_prompt(self, history: list[dict], resume: str, profile: dict, round_name: str) -> str:
         rc = self._get_round_config(round_name)
@@ -254,24 +252,20 @@ class InterviewEngine:
 【重要】correct_answer 必须是题目客观正确的答案。你必须仔细确认正确选项后再填写，绝对不能随意填写！这是判卷的唯一依据，填错会导致误判。
 
 只输出 JSON:
-{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy/medium/hard", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "（你确认正确的选项字母，如 B）"}}"""
+{{"question": "题目", "type": "选择题/判断题", "difficulty": "easy/medium/hard", "topic": "考察主题", "options": {{"A": "选项A", "B": "选项B", "C": "选项C", "D": "选项D"}}, "correct_answer": "正确选项字母", "explanation": "解析（2-3句话，解释为什么正确）"}}"""
 
-    def _build_written_evaluation_prompt(self, question: str, answer: str) -> str:
-        return f"""你是一个笔试判卷老师。请判断用户选择的答案是否正确并给出解析。
+    def _evaluate_written_direct(self, user_answer: str, question_data: dict) -> dict:
+        """直接比对答案，不走 AI"""
+        correct = question_data.get("correct_answer", "").strip().upper()
+        user = user_answer.strip().upper()
+        is_correct = (user == correct)
 
-题目信息:
-{question[:2000]}
-
-用户选择的答案: {answer[:200]}
-
-判卷规则：
-1. 首先根据题目内容独立思考真正正确的答案是什么
-2. 将用户的选择与真正正确的答案对比
-3. 如果题目中标注的 correct_answer 和你独立判断的答案不一致，以你的独立判断为准（出题时可能写错了答案）
-4. correct_answer 字段输出你确认后的正确答案
-
-只输出 JSON:
-{{"correct": true或false, "correct_answer": "真正正确的选项字母", "explanation": "解析（2-3句，说明为什么对/错）", "score": 10}}"""
+        return {
+            "correct": is_correct,
+            "correct_answer": correct,
+            "explanation": question_data.get("explanation", ""),
+            "score": 10 if is_correct else 0,
+        }
 
     def _build_evaluation_prompt(self, question: str, answer: str, context: dict) -> str:
         return f"""你是一个专业的面试官，请严格按以下 JSON 格式评估候选人的回答，不要输出其他内容。
@@ -357,30 +351,35 @@ class InterviewEngine:
                 "type": "选择题", "difficulty": "easy", "topic": "设计模式",
                 "options": {"A": "工厂模式", "B": "观察者模式", "C": "装饰器模式", "D": "策略模式"},
                 "correct_answer": "A",
+                "explanation": "工厂模式属于创建型模式，用于封装对象的创建过程。观察者、装饰器、策略都属于行为型或结构型模式。",
             },
             {
                 "question": "HTTP 状态码 404 表示什么？",
                 "type": "选择题", "difficulty": "easy", "topic": "网络基础",
                 "options": {"A": "服务器内部错误", "B": "资源未找到", "C": "重定向", "D": "请求超时"},
                 "correct_answer": "B",
+                "explanation": "404 Not Found 表示服务器无法找到请求的资源，是最常见的客户端错误状态码之一。500 为服务器错误，301/302 为重定向，408 为请求超时。",
             },
             {
                 "question": "以下哪种数据结构是先进后出（LIFO）的？",
                 "type": "选择题", "difficulty": "easy", "topic": "数据结构",
                 "options": {"A": "队列", "B": "栈", "C": "链表", "D": "数组"},
                 "correct_answer": "B",
+                "explanation": "栈（Stack）是典型的 LIFO 结构，只允许在一端进行插入和删除。队列是 FIFO，链表和数组不限定访问顺序。",
             },
             {
                 "question": "关系型数据库中的主键（Primary Key）的主要作用是什么？",
                 "type": "选择题", "difficulty": "easy", "topic": "数据库",
                 "options": {"A": "加快查询速度", "B": "唯一标识一条记录", "C": "建立索引", "D": "保证数据安全性"},
                 "correct_answer": "B",
+                "explanation": "主键的核心作用是唯一标识表中的每一行记录。虽然主键会自动创建索引从而加快查询，但这是副作用而非主要作用。",
             },
             {
                 "question": "在 Python 中，列表（list）和元组（tuple）的主要区别是什么？",
                 "type": "选择题", "difficulty": "easy", "topic": "Python基础",
                 "options": {"A": "列表可变，元组不可变", "B": "列表不可变，元组可变", "C": "两者没有区别", "D": "列表只能存储数字"},
                 "correct_answer": "A",
+                "explanation": "列表（list）创建后可以增删改元素，是可变的；元组（tuple）创建后不可修改，是不可变的。这是两者最核心的区别。",
             },
         ]
         return fallbacks[(num - 1) % len(fallbacks)]
@@ -389,24 +388,6 @@ class InterviewEngine:
         if round_name == "written":
             return self._make_written_fallback(num)
         return {"question": f"请介绍一下你在最近项目中的技术选型和架构设计。", "type": "技术", "difficulty": "medium", "topic": "项目经验", "expected_points": []}
-
-    def _parse_written_evaluation(self, raw: Optional[str]) -> dict:
-        default = {"correct": False, "correct_answer": "", "explanation": "", "score": 0}
-        if not raw:
-            return default
-        try:
-            data = json.loads(raw)
-            return {**default, **data}
-        except json.JSONDecodeError:
-            match = re.search(r'\{[\s\S]*\}', raw)
-            if match:
-                try:
-                    data = json.loads(match.group())
-                    return {**default, **data}
-                except json.JSONDecodeError:
-                    pass
-        logger.warning(f"笔试评估解析失败: {raw[:200]}")
-        return default
 
     def _parse_evaluation(self, raw: Optional[str]) -> dict:
         default = {

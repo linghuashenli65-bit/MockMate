@@ -278,7 +278,7 @@ async def submit_answer(req: AnswerSubmission):
 
     context = {"profile": session.get("profile", {})}
     round_name = session.get("round", "tech_1")
-    evaluation = await engine.evaluate_answer(question_text, req.answer, context, round_name)
+    evaluation = await engine.evaluate_answer(question_text, req.answer, context, round_name, question_data=current_q)
 
     session["history"].append({
         "q": question_text,
