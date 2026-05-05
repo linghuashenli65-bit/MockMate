@@ -58,7 +58,7 @@ window.MockMate = window.MockMate || {};
       // 列表标题 + 导出 PDF
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">' +
         '<h3 style="font-size:14px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:0">历史记录</h3>' +
-        '<button class="btn btn-secondary btn-sm" id="exportHistoryPdfBtn">导出 PDF</button>' +
+        '<button class="btn btn-secondary btn-sm" onclick="window.print()">导出 PDF</button>' +
         '</div>';
 
       // 面试记录列表
@@ -90,9 +90,6 @@ window.MockMate = window.MockMate || {};
         const avgDims = H.computeDimAverages(sessions);
         H.renderDimRadarChart('dimRadarChart', avgDims);
       }, 100);
-
-      var pdfBtn = document.getElementById('exportHistoryPdfBtn');
-      if (pdfBtn) pdfBtn.addEventListener('click', function() { window.print(); });
     } catch(e) {
       container.innerHTML = '<div style="color:var(--red);font-size:13px">加载失败: ' + M.esc(e.message) + '</div>';
     }
@@ -425,7 +422,7 @@ window.MockMate = window.MockMate || {};
       advHtml = '<p style="font-size:13px;color:var(--text2)">暂无数据</p>';
     }
 
-    return '<div class="analysis-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">' +
+    return '<div class="analysis-grid" style="display:grid;grid-template-columns:1fr;gap:16px;margin-bottom:16px">' +
       '<div class="card">' +
         '<h2>各维度平均分</h2>' +
         '<div style="max-width:240px;margin:12px auto 0">' +
@@ -456,8 +453,9 @@ window.MockMate = window.MockMate || {};
       const s = await M.API.get('/api/interview/session/' + sessionId);
 
       let html =
-        '<div style="margin-bottom:8px">' +
+        '<div style="margin-bottom:8px;display:flex;justify-content:space-between">' +
           '<button class="btn btn-secondary btn-sm" onclick="MockMate.History.loadHistory()">\u2190 返回列表</button>' +
+          '<button class="btn btn-secondary btn-sm" onclick="window.print()">导出 PDF</button>' +
         '</div>' +
         '<div class="card">' +
           '<h2 style="text-transform:none;color:var(--text)">' + M.esc(s.position || '未知岗位') + '</h2>' +

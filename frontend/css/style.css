@@ -715,31 +715,28 @@ textarea { resize: vertical; min-height: 80px; }
    Print / PDF Export
    ======================================== */
 @media print {
-  body * { visibility: hidden; }
-  #tab-interview, #tab-interview *,
-  #tab-history, #tab-history * {
-    visibility: visible;
+  * { overflow: visible !important; }
+  .app { min-height: 0 !important; }
+  .app > :not(.tab-content.active) { display: none !important; }
+  .tab-content.active {
+    display: block !important;
+    position: static !important;
   }
-  #tab-interview, #tab-history {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
-  .tabs, header, #toast,
-  #endInterviewBtn, #copyReportBtn, #downloadReportBtn,
-  #exportPdfReportBtn, #exportHistoryPdfBtn,
-  .btn { display: none !important; }
+  .tab-content.active .interview-area { min-height: 0 !important; }
+  .tab-content.active .btn { display: none !important; }
   .card {
     border: 1px solid #ddd !important;
     box-shadow: none !important;
-    page-break-inside: avoid;
+    page-break-inside: auto;
   }
+  .interview-area .card { page-break-inside: avoid; }
+  #historyList { page-break-inside: auto; }
   .score-tag {
     border: 1px solid #ccc !important;
     background: #f5f5f5 !important;
   }
   @page {
     margin: 15mm;
+    size: auto;
   }
 }

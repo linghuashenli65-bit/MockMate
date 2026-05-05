@@ -1,6 +1,6 @@
 # MockMate — AI 面试模拟陪练
 
-一款基于 FastAPI 的 AI 面试模拟工具。输入简历和目标岗位，AI 面试官出题、评分、生成报告，支持语音问答。
+一款基于 FastAPI 的 AI 面试模拟工具。输入简历和目标岗位，AI 面试官出题、评分、生成报告，支持语音问答、断点续面、自定义题目、题目收藏等。
 
 ---
 
@@ -179,10 +179,13 @@ AI 分析简历文本，提取技能、经验、项目。
 | 技术二面 | `tech_2` | 系统设计 + 架构 + 深度原理 |
 | 综合面 | `comprehensive` | 综合素质 + 行为面试 + 职业规划 |
 | 笔试 | `written` | 选择题 + 判断题，AI 自动判卷解析 |
+| 自定义练习 | `custom` | 使用自定义题目进行练习（需传入 `custom_question_ids`）|
 
 ```json
-// 请求
+// 请求（普通模式）
 { "resume": "简历内容...", "position": "Python后端开发", "company": "字节跳动", "profile": {}, "round": "tech_1" }
+// 请求（自定义题目模式）
+{ "resume": "...", "position": "...", "round": "tech_1", "custom_question_ids": [1, 2, 3] }
 // 响应
 {
   "session_id": "a1b2c3d4e5f6",
@@ -244,15 +247,48 @@ AI 分析简历文本，提取技能、经验、项目。
 }
 ```
 
+#### `POST /api/interview/hint`
+获取当前面试题的解题思路提示（非答案）。使用提示后评估会适当降分。
+
+```json
+// 请求
+{ "session_id": "a1b2c3d4e5f6", "question_index": 2 }
+// 响应
+{ "hint": "1. 考察要点：… 2. 思考方向：… 3. 切入点：…" }
+```
+
 #### `GET /api/interview/session/{session_id}`
 查询历史面试会话详情。返回字段包含 `round` 表示该场面试的轮次。
 
-### 其他
+### 题目收藏
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/favorites` | 收藏题目 |
+| GET | `/api/favorites` | 列出所有收藏 |
+| DELETE | `/api/favorites/{id}` | 取消收藏 |
+
+```json
+// POST /api/favorites
+{ "session_id": "...", "question": "题目", "type": "技术", "difficulty": "medium", "topic": "...", "user_answer": "...", "overall_score": 8 }
+```
+
+### 自定义题目
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/custom/questions` | 创建题目 |
+| GET | `/api/custom/questions` | 列出所有题目 |
+| GET | `/api/custom/questions/{id}` | 获取单题 |
+| PUT | `/api/custom/questions/{id}` | 更新题目 |
+| DELETE | `/api/custom/questions/{id}` | 删除题目 |
+
+### 历史记录 / 缓存
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
 | GET | `/api/audio/{filename}` | 获取语音文件（MP3） |
-| GET | `/api/history` | 列出所有面试记录 |
+| GET | `/api/history` | 列出所有面试记录（含各维度分数、薄弱点） |
 | DELETE | `/api/history/{session_id}` | 删除指定记录 |
 | GET | `/api/cache/stats` | 缓存统计 |
 | POST | `/api/cache/clear` | 清空缓存 |
@@ -279,9 +315,11 @@ MockMate/
 │       ├── app.js              # 主入口（Tab 切换、快捷键、表单记忆）
 │       ├── api.js              # API 请求封装
 │       ├── utils.js            # 工具函数 & 常量
-│       ├── interview.js        # 面试全流程（出题、答题、评分、报告）
+│       ├── interview.js        # 面试全流程（出题、答题、评分、报告、断点续面、跳过/暂挂、语音输入）
 │       ├── research.js         # 岗位画像搜索
-│       ├── history.js          # 历史记录 + Chart.js 图表
+│       ├── history.js          # 历史记录 + Chart.js 图表（多维度趋势、薄弱点分析）
+│       ├── favorites.js        # 题目收藏管理
+│       ├── custom.js           # 自定义题目 CRUD
 │       └── settings.js         # API Key 配置
 └── backend/
     ├── __init__.py
@@ -385,8 +423,9 @@ MockMate/
 | 图片识别 | MiMo 多模态 API |
 | 语音合成 | MiMo TTS |
 | 数据存储 | MySQL / JSON 文件双模式 |
-| 前端 | 原生 JS SPA（7 模块化文件 + Chart.js 图表） |
+| 前端 | 原生 JS SPA（9 模块化文件 + Chart.js 图表） |
 | 图表库 | Chart.js v4（CDN 引入） |
+| 语音识别 | Web Speech API（Chrome 浏览器语音输入） |
 | 依赖管理 | pip + requirements.txt |
 
 ---
