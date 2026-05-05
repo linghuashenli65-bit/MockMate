@@ -12,6 +12,7 @@ window.MockMate = window.MockMate || {};
     tech_1:        '技术一面',
     tech_2:        '技术二面',
     comprehensive: '综合面',
+    custom:        '自定义练习',
   };
 
   M.ROUND_TOTALS = {
@@ -21,8 +22,15 @@ window.MockMate = window.MockMate || {};
     comprehensive: 6,
   };
 
-  M.INTERVIEW_TIME = 180;  // 面试每题秒数
+  M.INTERVIEW_TIME = 180;  // 面试每题秒数（默认）
   M.WRITTEN_TIME   = 90;   // 笔试每题秒数
+
+  M.ROUND_TIMES = {
+    written:       90,
+    tech_1:        300,
+    tech_2:        300,
+    comprehensive: 300,
+  };
 
   // ---- HTML 转义 ----
   M.esc = function (str) {

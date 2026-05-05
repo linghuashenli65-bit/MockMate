@@ -36,6 +36,14 @@ window.MockMate = window.MockMate || {};
       });
     },
 
+    put(url, data) {
+      return this._request(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+    },
+
     delete(url) {
       return this._request(url, { method: 'DELETE' });
     },

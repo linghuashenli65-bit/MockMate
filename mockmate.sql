@@ -46,3 +46,30 @@ CREATE TABLE IF NOT EXISTS search_history (
     INDEX idx_position (position),
     INDEX idx_created  (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='岗位搜索历史表';
+
+-- ==================== 题目收藏表 ====================
+CREATE TABLE IF NOT EXISTS favorites (
+    id             INT            AUTO_INCREMENT PRIMARY KEY COMMENT '自增ID',
+    session_id     VARCHAR(12)    DEFAULT ''     COMMENT '来源会话ID',
+    question       TEXT           NOT NULL       COMMENT '题目内容',
+    type           VARCHAR(20)    DEFAULT ''     COMMENT '题目类型(技术/行为/设计)',
+    difficulty     VARCHAR(10)    DEFAULT ''     COMMENT '难度(easy/medium/hard)',
+    topic          VARCHAR(100)   DEFAULT ''     COMMENT '主题',
+    user_answer    TEXT                          COMMENT '用户的回答',
+    overall_score  INT            DEFAULT 0      COMMENT '综合得分',
+    notes          TEXT                          COMMENT '备注',
+    saved_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题目收藏表';
+
+-- ==================== 自定义题目表 ====================
+CREATE TABLE IF NOT EXISTS custom_questions (
+    id               INT            AUTO_INCREMENT PRIMARY KEY COMMENT '自增ID',
+    question         TEXT           NOT NULL       COMMENT '题目内容',
+    type             VARCHAR(20)    DEFAULT '技术'  COMMENT '题目类型(技术/行为/设计/项目)',
+    difficulty       VARCHAR(10)    DEFAULT 'medium' COMMENT '难度(easy/medium/hard)',
+    topic            VARCHAR(100)   DEFAULT ''     COMMENT '主题',
+    expected_points  JSON                          COMMENT '考察要点JSON',
+    tags             VARCHAR(200)   DEFAULT ''     COMMENT '标签(逗号分隔)',
+    created_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自定义题目表';

@@ -67,14 +67,45 @@ class StartInterview(BaseModel):
     company: str = ""
     profile: dict = {}
     round: str = "tech_1"
+    custom_question_ids: list[int] = []
 
 class AnswerSubmission(BaseModel):
     session_id: str
     question_index: int
     answer: str
+    hint_used: bool = False
 
 class EndInterview(BaseModel):
     session_id: str
+
+class HintRequest(BaseModel):
+    session_id: str
+    question_index: int
+
+class FavoriteCreate(BaseModel):
+    session_id: str = ""
+    question: str
+    type: str = ""
+    difficulty: str = ""
+    topic: str = ""
+    user_answer: str = ""
+    overall_score: int = 0
+
+class CustomQuestionCreate(BaseModel):
+    question: str
+    type: str = "技术"
+    difficulty: str = "medium"
+    topic: str = ""
+    expected_points: list = []
+    tags: str = ""
+
+class CustomQuestionUpdate(BaseModel):
+    question: str
+    type: str = "技术"
+    difficulty: str = "medium"
+    topic: str = ""
+    expected_points: list = []
+    tags: str = ""
 
 
 # ---------- FastAPI ----------
@@ -240,7 +271,35 @@ async def start_interview(req: StartInterview):
     session_id = uuid.uuid4().hex[:12]
     profile = req.profile or {"position": req.position}
 
-    round_name = req.round  # Pydantic 默认值为 tech_1
+    # 自定义题目模式
+    if req.custom_question_ids:
+        custom_questions = await db.list_custom_question_ids(req.custom_question_ids)
+        if not custom_questions:
+            raise HTTPException(400, "未找到指定的自定义题目")
+        question = custom_questions[0]
+        session = {
+            "id": session_id,
+            "position": req.position,
+            "company": req.company,
+            "resume": req.resume,
+            "profile": profile,
+            "round": "custom",
+            "history": [],
+            "current_question": question,
+            "current_index": 0,
+            "custom_questions": custom_questions,
+            "created_at": datetime.now().isoformat(),
+        }
+        await db.save_session(session_id, session)
+        return {
+            "session_id": session_id,
+            "question": question,
+            "question_index": 0,
+            "round": "custom",
+            "audio_url": None,
+        }
+
+    round_name = req.round
     question = await engine.generate_first_question(req.resume, profile, round_name)
     audio_path = await tts.synthesize(question["question"], session_id, 0)
 
@@ -276,7 +335,7 @@ async def submit_answer(req: AnswerSubmission):
     current_q = session.get("current_question", {})
     question_text = current_q.get("question", "")
 
-    context = {"profile": session.get("profile", {})}
+    context = {"profile": session.get("profile", {}), "hint_used": req.hint_used}
     round_name = session.get("round", "tech_1")
     evaluation = await engine.evaluate_answer(question_text, req.answer, context, round_name, question_data=current_q)
 
@@ -287,6 +346,24 @@ async def submit_answer(req: AnswerSubmission):
         "type": current_q.get("type", ""),
         "topic": current_q.get("topic", ""),
     })
+
+    # 自定义题目模式：从预加载列表取下一题，不 AI 生成
+    custom_qs = session.get("custom_questions", [])
+    if custom_qs:
+        next_index = session["current_index"] + 1
+        if next_index < len(custom_qs):
+            next_q = custom_qs[next_index]
+        else:
+            next_q = None
+        session["current_question"] = next_q
+        session["current_index"] = next_index
+        await db.save_session(req.session_id, session)
+        return {
+            "evaluation": evaluation,
+            "next_question": next_q,
+            "next_index": next_index,
+            "audio_url": None,
+        }
 
     next_index = session["current_index"] + 1
     next_q = await engine.generate_next_question(
@@ -319,6 +396,75 @@ async def end_interview(req: EndInterview):
 
     return {"report": report, "history": session["history"], "round": session.get("round", "")}
 
+@app.post("/api/interview/hint")
+async def get_hint(req: HintRequest):
+    """获取面试题提示"""
+    session = await db.load_session(req.session_id)
+    if not session:
+        raise HTTPException(404, "会话不存在")
+    current_q = session.get("current_question", {})
+    question_text = current_q.get("question", "")
+    question_type = current_q.get("type", "")
+    question_topic = current_q.get("topic", "")
+
+    hint = await engine.generate_hint(question_text, question_type, question_topic)
+    return {"hint": hint}
+
+# ==================== 题目收藏 ====================
+
+@app.post("/api/favorites")
+async def create_favorite(req: FavoriteCreate):
+    """收藏题目"""
+    fav_id = await db.save_favorite(req.model_dump())
+    return {"id": fav_id, "message": "已收藏"}
+
+@app.get("/api/favorites")
+async def list_favorites():
+    """获取所有收藏题目"""
+    return {"favorites": await db.list_favorites()}
+
+@app.delete("/api/favorites/{fav_id}")
+async def delete_favorite(fav_id: int):
+    """删除收藏题目"""
+    if not await db.delete_favorite(fav_id):
+        raise HTTPException(404, "收藏不存在")
+    return {"message": "已取消收藏"}
+
+# ==================== 自定义题目 ====================
+
+@app.post("/api/custom/questions")
+async def create_custom_question(req: CustomQuestionCreate):
+    """创建自定义题目"""
+    qid = await db.create_custom_question(req.model_dump())
+    return {"id": qid, "message": "题目已创建"}
+
+@app.get("/api/custom/questions")
+async def list_custom_questions():
+    """获取所有自定义题目"""
+    return {"questions": await db.list_custom_questions()}
+
+@app.get("/api/custom/questions/{qid}")
+async def get_custom_question(qid: int):
+    """获取单个自定义题目"""
+    q = await db.get_custom_question(qid)
+    if not q:
+        raise HTTPException(404, "题目不存在")
+    return q
+
+@app.put("/api/custom/questions/{qid}")
+async def update_custom_question(qid: int, req: CustomQuestionUpdate):
+    """更新自定义题目"""
+    if not await db.update_custom_question(qid, req.model_dump()):
+        raise HTTPException(404, "题目不存在")
+    return {"message": "题目已更新"}
+
+@app.delete("/api/custom/questions/{qid}")
+async def delete_custom_question(qid: int):
+    """删除自定义题目"""
+    if not await db.delete_custom_question(qid):
+        raise HTTPException(404, "题目不存在")
+    return {"message": "题目已删除"}
+
 @app.get("/api/interview/session/{session_id}")
 async def get_session(session_id: str):
     """获取面试会话详情"""
@@ -335,6 +481,7 @@ async def get_session(session_id: str):
         "report": session.get("report"),
         "current_question": session.get("current_question"),
         "current_index": session.get("current_index", 0),
+        "custom_questions": session.get("custom_questions", []),
     }
 
 

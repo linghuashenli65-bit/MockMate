@@ -26,6 +26,8 @@
     <button class="tab active" data-tab="setup">准备面试</button>
     <button class="tab" data-tab="interview">模拟面试</button>
     <button class="tab" data-tab="history">历史记录</button>
+    <button class="tab" data-tab="favorites">题目收藏</button>
+    <button class="tab" data-tab="custom">自定义题目</button>
     <button class="tab" data-tab="settings">设置</button>
   </div>
 
@@ -44,9 +46,10 @@
       <div class="form-group">
         <label>简历内容（粘贴或上传简历文件）</label>
         <textarea id="resumeInput" rows="6" placeholder="粘贴你的简历内容，包括技能、项目经验、工作经历等..."></textarea>
-        <div class="form-hint">
+        <div class="form-hint" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           也支持上传简历文件（JPG/PNG/PDF/Word/Markdown）：
-          <input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md" style="width:auto;display:inline;padding:4px 8px;font-size:12px">
+          <input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md">
+          <span id="resumeFileName" style="margin-left:6px;font-size:12px;color:var(--text2)"></span>
         </div>
       </div>
 
@@ -103,7 +106,14 @@
       <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
         准备好后点击下方按钮，AI 面试官将根据你的简历和岗位要求进行模拟面试。
       </p>
-      <button class="btn btn-primary" id="startInterviewBtn">开始模拟面试</button>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+        <button class="btn btn-primary" id="startInterviewBtn">开始模拟面试</button>
+        <label style="display:flex;align-items:center;cursor:pointer;font-size:13px;gap:8px;flex-shrink:0">
+          <input type="checkbox" id="useCustomQuestions" class="custom-checkbox" style="width:auto">
+          <span>使用自定义题目 <span style="font-size:11px;color:var(--text2)">（需先在「自定义题目」标签页添加）</span></span>
+        </label>
+      </div>
+      <div id="customQuestionSelector" style="display:none;margin-top:8px;padding:10px;background:var(--surface2);border-radius:8px;max-height:200px;overflow-y:auto"></div>
     </div>
   </div>
 
@@ -128,6 +138,19 @@
   <!-- ============ Tab: 历史记录 ============ -->
   <div class="tab-content" id="tab-history">
     <div id="historyList"><div class="empty-state">暂无面试记录</div></div>
+  </div>
+
+  <!-- ============ Tab: 题目收藏 ============ -->
+  <div class="tab-content" id="tab-favorites">
+    <div id="favoritesList"><div class="empty-state">还没有收藏的题目</div></div>
+  </div>
+
+  <!-- ============ Tab: 自定义题目 ============ -->
+  <div class="tab-content" id="tab-custom">
+    <div style="margin-bottom:12px">
+      <button class="btn btn-primary" id="addCustomQuestionBtn">+ 添加新题目</button>
+    </div>
+    <div id="customQuestionsList"><div class="empty-state">还没有自定义题目，点击上方按钮添加</div></div>
   </div>
 
   <!-- ============ Tab: 设置 ============ -->
@@ -178,6 +201,8 @@
 <script src="js/interview.js"></script>
 <script src="js/research.js"></script>
 <script src="js/history.js"></script>
+<script src="js/favorites.js"></script>
+<script src="js/custom.js"></script>
 <script src="js/settings.js"></script>
 
 </body>

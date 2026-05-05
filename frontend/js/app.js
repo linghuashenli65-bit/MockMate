@@ -14,12 +14,14 @@ window.MockMate = window.MockMate || {};
     interviewStartTime: null,
     timerInterval: null,
     isWrittenRound: false,
+    currentRound: null,
     totalQuestions: 0,
     currentProfile: null,    // 当前岗位画像
     countdownInterval: null, // 倒计时句柄
     countdownRemaining: 0,   // 倒计时剩余秒数
     countdownPaused: false,
     drafts: {},              // 草稿缓存 { "sessionId_qIndex": "text" }
+    suspendedQuestions: [],  // 跳过/暂挂的题目
   };
 
   // ---- Tab 切换 ----
@@ -90,7 +92,7 @@ window.MockMate = window.MockMate || {};
     document.addEventListener('keydown', (e) => {
       // Alt+1/2/3/4 切换 Tab
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        const tabMap = { '1': 'setup', '2': 'interview', '3': 'history', '4': 'settings' };
+        const tabMap = { '1': 'setup', '2': 'interview', '3': 'history', '4': 'settings', '5': 'favorites', '6': 'custom' };
         const tab = tabMap[e.key];
         if (tab) {
           e.preventDefault();
@@ -118,6 +120,22 @@ window.MockMate = window.MockMate || {};
         el.addEventListener('input', () => M.saveFormMemory());
       }
     });
+  };
+
+  // ---- 断点续面 ----
+  M.checkResumeSession = async function () {
+    const sessionId = M.ls.get('active_session', '');
+    if (!sessionId) return;
+    try {
+      const session = await M.API.get('/api/interview/session/' + sessionId);
+      if (!session || session.report || !session.current_question) {
+        M.ls.remove('active_session');
+        return;
+      }
+      M.Interview.resumeSession(session);
+    } catch(e) {
+      M.ls.remove('active_session');
+    }
   };
 
   // ---- 清除缓存 ----
@@ -153,6 +171,52 @@ window.MockMate = window.MockMate || {};
     const defaultRound = document.querySelector('.round-option[data-round="tech_1"]');
     if (defaultRound) defaultRound.classList.add('selected');
 
+    // 自定义题目选择器
+    M.state._selectedCustomIds = [];
+    const useCustomCb = document.getElementById('useCustomQuestions');
+    const customSel = document.getElementById('customQuestionSelector');
+    if (useCustomCb) {
+      useCustomCb.addEventListener('change', async function () {
+        if (this.checked) {
+          try {
+            const res = await M.API.get('/api/custom/questions');
+            const qs = res.questions || [];
+            if (!qs.length) {
+              M.toast('请先在「自定义题目」标签页添加题目');
+              this.checked = false;
+              return;
+            }
+            let html = '<div style="font-size:12px;color:var(--text2);margin-bottom:6px">选择要练习的题目：</div>';
+            qs.forEach(q => {
+              const qShort = (q.question || '').length > 50 ? (q.question || '').slice(0, 50) + '...' : (q.question || '');
+              html +=
+                '<label style="display:flex;align-items:center;cursor:pointer;font-size:13px;justify-content:space-between;padding:3px 0">' +
+                  '<span>' + M.esc(qShort) + '</span>' +
+                  '<input type="checkbox" class="custom-checkbox custom-q-checkbox" value="' + q.id + '" checked>' +
+                '</label>';
+            });
+            customSel.innerHTML = html;
+            customSel.style.display = 'block';
+            M.updateSelectedCustomIds();
+            customSel.querySelectorAll('.custom-q-checkbox').forEach(cb => {
+              cb.addEventListener('change', M.updateSelectedCustomIds);
+            });
+          } catch (e) {
+            M.toast('加载自定义题目失败');
+            this.checked = false;
+          }
+        } else {
+          customSel.style.display = 'none';
+          M.state._selectedCustomIds = [];
+        }
+      });
+    }
+
+    M.updateSelectedCustomIds = function () {
+      const cbs = document.querySelectorAll('.custom-q-checkbox:checked');
+      M.state._selectedCustomIds = Array.from(cbs).map(cb => parseInt(cb.value));
+    };
+
     // 面试中离开保护
     window.addEventListener('beforeunload', (e) => {
       if (M.state.interviewActive) {
@@ -175,7 +239,12 @@ window.MockMate = window.MockMate || {};
     M.Research.init();
     M.Interview.init();
     M.History.init();
+    M.Favorites.init();
+    M.Custom.init();
     M.Settings.init();
+
+    // 检查是否有未完成的面试（断点续面）
+    M.checkResumeSession();
 
     console.log('MockMate initialized');
   };

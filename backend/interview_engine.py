@@ -166,6 +166,23 @@ class InterviewEngine:
         result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
         return self._parse_evaluation(result)
 
+    async def generate_hint(self, question: str, q_type: str, q_topic: str) -> str:
+        """为面试题生成解题思路提示"""
+        prompt = f"""你是一名面试辅导专家。请为以下面试题提供解题思路提示。
+
+要求：
+- 只给思考方向和要点，不要直接给出完整答案
+- 提示应包含：考察点分析、思考框架、可能的切入点
+- 保持简洁，3-5 个要点
+
+题目类型：{q_type}
+题目主题：{q_topic}
+题目：{question}
+
+提示："""
+        result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=512)
+        return result.strip()
+
     async def end_interview(self, history: list[dict], profile: dict) -> dict:
         """结束面试，生成总结报告"""
         prompt = self._build_report_prompt(history, profile)
@@ -337,7 +354,10 @@ class InterviewEngine:
         }
 
     def _build_evaluation_prompt(self, question: str, answer: str, context: dict) -> str:
-        return f"""你是一个专业的面试官，请严格按以下 JSON 格式评估候选人的回答，不要输出其他内容。
+        hint_note = ""
+        if context.get("hint_used"):
+            hint_note = "\n注意：候选人在回答此题前使用了提示，说明独立思考能力不足，各项评分应适当降低。"
+        return f"""你是一名资深面试官，请评估候选人的回答并输出 JSON。
 
 面试题: {question}
 
@@ -345,9 +365,16 @@ class InterviewEngine:
 
 岗位信息: {json.dumps(context.get("profile", {}), ensure_ascii=False)[:500]}
 
-评分标准：每个维度 1-10 分（10 分制），只输出 JSON：
+{hint_note}
+评分标准（10 分制，请充分利用 1-10 全范围）：
+- 10 分：完美回答，超出预期
+- 8-9 分：很好的回答，略有瑕疵
+- 6-7 分：合格回答，有提升空间
+- 4-5 分：基本回答，明显不足
+- 1-3 分：较差回答
 
-{{"technical_score": 7, "technical_comment": "评价", "logic_score": 7, "logic_comment": "评价", "depth_score": 7, "depth_comment": "评价", "communication_score": 7, "communication_comment": "评价", "overall_score": 7, "summary": "综合评价", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
+只输出 JSON：
+{{"technical_score": 10, "technical_comment": "评价", "logic_score": 10, "logic_comment": "评价", "depth_score": 10, "depth_comment": "评价", "communication_score": 10, "communication_comment": "评价", "overall_score": 10, "summary": "综合评价", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
 
     def _build_report_prompt(self, history: list[dict], profile: dict) -> str:
         history_str = ""

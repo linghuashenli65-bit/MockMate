@@ -19,6 +19,8 @@ window.MockMate = window.MockMate || {};
   I.handleResumeUpload = async function (e) {
     const file = e.target.files[0];
     if (!file) return;
+    const nameEl = document.getElementById('resumeFileName');
+    if (nameEl) nameEl.textContent = file.name;
     const formData = new FormData();
     formData.append('file', file);
     try {
@@ -145,6 +147,25 @@ window.MockMate = window.MockMate || {};
     });
   }
 
+  // ---- 断点续面 ----
+  I.resumeSession = function (session) {
+    M.state.currentSessionId = session.id;
+    M.state.currentQuestionIndex = session.current_index;
+    M.state.interviewActive = true;
+    M.state.currentRound = session.round;
+    M.state.isWrittenRound = session.round === 'written';
+    const customQs = session.custom_questions || [];
+    M.state.totalQuestions = customQs.length || M.ROUND_TOTALS[session.round] || 8;
+
+    document.getElementById('roundLabel').textContent =
+      M.ROUND_NAMES[session.round] || session.round;
+
+    M.switchTab('interview');
+    startTimer();
+    I.showQuestion(session.current_question, session.current_index, null);
+    M.toast('面试已恢复，继续作答');
+  };
+
   // ---- 开始面试 ----
   I.startInterview = async function () {
     const resume = document.getElementById('resumeInput').value.trim();
@@ -159,18 +180,24 @@ window.MockMate = window.MockMate || {};
 
     try {
       const selectedRound = document.querySelector('input[name="round"]:checked')?.value || 'tech_1';
+      const useCustom = document.getElementById('useCustomQuestions')?.checked;
+      const customIds = useCustom ? M.state._selectedCustomIds || [] : [];
+
       const result = await M.API.post('/api/interview/start', {
         resume, position, company,
         profile: M.state.currentProfile || {},
         round: selectedRound,
+        custom_question_ids: customIds,
       });
 
       M.state.currentSessionId = result.session_id;
       M.state.currentQuestionIndex = 0;
       M.state.interviewActive = true;
+      M.state.currentRound = result.round;
       M.state.isWrittenRound = result.round === 'written';
-      M.state.totalQuestions = M.ROUND_TOTALS[result.round] || 8;
+      M.state.totalQuestions = customIds.length || M.ROUND_TOTALS[result.round] || 8;
 
+      M.ls.set('active_session', result.session_id);
       startTimer();
 
       // 设置轮次标签
@@ -196,6 +223,7 @@ window.MockMate = window.MockMate || {};
     const sessionId = M.state.currentSessionId;
 
     M.state._lastQuestion = question;
+    M.state._hintUsed = false;
     updateProgress(index, total);
     document.getElementById('questionCount').textContent =
       '第 ' + (index + 1) + ' / ' + total + ' 题';
@@ -218,13 +246,13 @@ window.MockMate = window.MockMate || {};
     }
 
     // 倒计时显示
-    const timeLimit = isWritten ? M.WRITTEN_TIME : M.INTERVIEW_TIME;
+    const timeLimit = M.ROUND_TIMES[M.state.currentRound] || (isWritten ? M.WRITTEN_TIME : M.INTERVIEW_TIME);
     const countdownHtml = '<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">' +
       '<div class="progress-wrap" style="margin-bottom:0;flex:1">' +
         '<div class="progress-track"><div class="progress-fill" id="progressFill" style="width:0%"></div></div>' +
         '<span class="progress-text" id="progressText">第 ' + (index + 1) + ' / ' + total + ' 题</span>' +
       '</div>' +
-      '<span class="countdown" id="countdownTimer" title="点击暂停/继续倒计时">' +
+      '<span class="countdown" id="countdownTimer">' +
         String(Math.floor(timeLimit / 60)).padStart(2, '0') + ':00' +
       '</span>' +
       '</div>';
@@ -245,15 +273,20 @@ window.MockMate = window.MockMate || {};
         '</div>' +
         '<div style="display:flex;gap:10px">' +
           '<button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>' +
+          '<button class="btn btn-secondary" id="pauseCountdownBtn" style="flex:0.3">暂停</button>' +
+          '<button class="btn btn-secondary" id="skipQuestionBtn" style="flex:0.4">跳过本题</button>' +
         '</div>';
     } else {
       // 恢复草稿
       const draft = loadDraft(sessionId, index);
       answerHtml = '<div class="form-group">' +
         '<label>你的回答</label>' +
-        '<textarea id="answerInput" rows="5" placeholder="输入你的回答...（Ctrl+Enter 快捷提交）">' +
-        M.esc(draft) +
-        '</textarea>' +
+        '<div style="display:flex;gap:8px;align-items:flex-start">' +
+          '<textarea id="answerInput" rows="5" placeholder="输入你的回答...（Ctrl+Enter 快捷提交）" style="flex:1">' +
+          M.esc(draft) +
+          '</textarea>' +
+          '<button class="record-btn-sm" id="voiceInputBtn" title="语音输入">🎤</button>' +
+        '</div>' +
         '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text2);margin-top:4px">' +
           '<span>Ctrl+Enter 提交 · 自动保存草稿</span>' +
           '<span id="charCount">' + (draft.length || 0) + ' 字</span>' +
@@ -261,8 +294,16 @@ window.MockMate = window.MockMate || {};
         '</div>' +
         '<div style="display:flex;gap:10px">' +
           '<button class="btn btn-primary" id="submitAnswerBtn" style="flex:1">提交回答</button>' +
+          '<button class="btn btn-secondary" id="pauseCountdownBtn" style="flex:0.3">暂停</button>' +
+          '<button class="btn btn-secondary" id="skipQuestionBtn" style="flex:0.4">跳过本题</button>' +
         '</div>';
     }
+
+    const hintBtnHtml = isWritten ? '' :
+      '<div style="margin-top:8px;display:flex;gap:8px">' +
+        '<button class="btn btn-sm btn-secondary" id="hintBtn">💡 提示</button>' +
+      '</div>' +
+      '<div id="hintResult" style="margin-top:8px;padding:10px;background:var(--surface2);border-radius:8px;border-left:3px solid var(--accent);display:none;font-size:13px;line-height:1.6"></div>';
 
     area.innerHTML =
       countdownHtml +
@@ -272,25 +313,60 @@ window.MockMate = window.MockMate || {};
         meta +
         audioHtml +
       '</div>' +
+      hintBtnHtml +
       answerHtml +
       '<div id="evaluationResult"></div>';
 
     // 倒计时
     startCountdown(timeLimit, I.submitAnswer);
 
-    // 倒计时点击暂停
-    document.getElementById('countdownTimer').addEventListener('click', function () {
-      M.state.countdownPaused = !M.state.countdownPaused;
-      if (M.state.countdownPaused) {
-        this.classList.add('paused');
-      } else {
-        this.classList.remove('paused');
-      }
-    });
+    // 暂停/继续按钮
+    const pauseBtn = document.getElementById('pauseCountdownBtn');
+    if (pauseBtn) {
+      pauseBtn.addEventListener('click', function () {
+        M.state.countdownPaused = !M.state.countdownPaused;
+        this.textContent = M.state.countdownPaused ? '继续' : '暂停';
+        const cdEl = document.getElementById('countdownTimer');
+        if (cdEl) {
+          if (M.state.countdownPaused) {
+            cdEl.classList.add('paused');
+          } else {
+            cdEl.classList.remove('paused');
+          }
+        }
+      });
+    }
+
+    // 提示按钮
+    const hintBtn = document.getElementById('hintBtn');
+    if (hintBtn) {
+      hintBtn.addEventListener('click', async function () {
+        if (this.disabled) return;
+        this.disabled = true;
+        this.textContent = '生成中...';
+        try {
+          const result = await M.API.post('/api/interview/hint', {
+            session_id: M.state.currentSessionId,
+            question_index: M.state.currentQuestionIndex,
+          });
+          const hintEl = document.getElementById('hintResult');
+          hintEl.textContent = result.hint;
+          hintEl.style.display = 'block';
+          this.textContent = '💡 已查看提示';
+          M.state._hintUsed = true;
+        } catch(e) {
+          M.toast('获取提示失败: ' + e.message);
+          this.disabled = false;
+          this.textContent = '💡 提示';
+        }
+      });
+    }
 
     // 绑定提交按钮
+    const skipBtn = document.getElementById('skipQuestionBtn');
     if (question.options) {
       document.getElementById('submitAnswerBtn').addEventListener('click', I.submitAnswer);
+      if (skipBtn) skipBtn.addEventListener('click', I.skipQuestion);
     } else {
       const ta = document.getElementById('answerInput');
       ta.addEventListener('keydown', (e) => {
@@ -301,7 +377,9 @@ window.MockMate = window.MockMate || {};
         saveDraft(sessionId, index);
       });
       document.getElementById('submitAnswerBtn').addEventListener('click', I.submitAnswer);
+      if (skipBtn) skipBtn.addEventListener('click', I.skipQuestion);
       ta.focus();
+      setupVoiceInput();
     }
   };
 
@@ -332,6 +410,7 @@ window.MockMate = window.MockMate || {};
         session_id: sessionId,
         question_index: qIndex,
         answer,
+        hint_used: M.state._hintUsed || false,
       });
 
       M.state.currentQuestionIndex = result.next_index;
@@ -376,21 +455,153 @@ window.MockMate = window.MockMate || {};
             '</div>' +
             '<div style="margin-top:12px;display:flex;gap:10px">' +
               '<button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>' +
+              '<button class="btn btn-secondary btn-sm" id="saveFavBtn">收藏此题</button>' +
               '<button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>' +
             '</div>' +
           '</div>';
       }
 
       document.getElementById('nextQuestionBtn').addEventListener('click', () => {
-        I.showQuestion(result.next_question, result.next_index, result.audio_url);
+        showNextQuestion(result.next_question, result.next_index, result.audio_url);
       });
       document.getElementById('endFromFeedbackBtn').addEventListener('click', I.endInterview);
+      const saveFavBtn = document.getElementById('saveFavBtn');
+      if (saveFavBtn) {
+        const qObj = M.state._lastQuestion;
+        const answerText = document.getElementById('answerInput')?.value?.trim() || '';
+        const scoreVal = ev.overall_score ?? 0;
+        saveFavBtn.addEventListener('click', () => M.Favorites.saveCurrentQuestion(qObj, answerText, scoreVal));
+      }
       btn.style.display = 'none';
     } catch(e) {
       M.toast('评估失败: ' + e.message);
       M.setBtnLoading(btn, false, '提交回答');
     }
   };
+
+  // ---- 跳过本题 ----
+  I.skipQuestion = async function () {
+    if (!M.state.interviewActive) return;
+    stopCountdown();
+
+    const questionObj = M.state._lastQuestion;
+    if (!questionObj) return;
+
+    // 保存到暂挂列表
+    M.state.suspendedQuestions.push({
+      question: questionObj,
+      index: M.state.currentQuestionIndex,
+    });
+
+    const btn = document.getElementById('skipQuestionBtn');
+    const sessionId = M.state.currentSessionId;
+    const qIndex = M.state.currentQuestionIndex;
+    M.setBtnLoading(btn, true, '跳过中...');
+
+    try {
+      const result = await M.API.post('/api/interview/answer', {
+        session_id: sessionId,
+        question_index: qIndex,
+        answer: '',
+      });
+
+      M.state.currentQuestionIndex = result.next_index;
+      clearDraft(sessionId, qIndex);
+      showNextQuestion(result.next_question, result.next_index, result.audio_url);
+    } catch(e) {
+      M.toast('跳过失败: ' + e.message);
+      M.setBtnLoading(btn, false, '跳过本题');
+    }
+  };
+
+  // ---- 语音输入 ----
+  function setupVoiceInput() {
+    const btn = document.getElementById('voiceInputBtn');
+    const ta = document.getElementById('answerInput');
+    if (!btn || !ta) return;
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      btn.style.display = 'none';
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = true;
+    recognition.interimResults = true;
+
+    let isRecording = false;
+
+    btn.addEventListener('click', function () {
+      if (!isRecording) {
+        try { recognition.start(); } catch(e) { /* already started */ }
+        btn.classList.add('recording');
+        btn.title = '点击停止';
+        isRecording = true;
+      } else {
+        recognition.stop();
+        btn.classList.remove('recording');
+        btn.title = '语音输入';
+        isRecording = false;
+      }
+    });
+
+    recognition.onresult = function (event) {
+      let transcript = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        if (event.results[i].isFinal) {
+          transcript += event.results[i][0].transcript;
+        }
+      }
+      if (transcript) {
+        const cursorPos = ta.selectionStart;
+        ta.value = ta.value.slice(0, cursorPos) + transcript + ta.value.slice(cursorPos);
+        ta.selectionStart = ta.selectionEnd = cursorPos + transcript.length;
+        ta.dispatchEvent(new Event('input'));
+        ta.focus();
+      }
+    };
+
+    recognition.onend = function () {
+      btn.classList.remove('recording');
+      btn.title = '语音输入';
+      isRecording = false;
+    };
+
+    recognition.onerror = function (event) {
+      if (event.error !== 'no-speech' && event.error !== 'aborted') {
+        M.toast('语音识别错误: ' + event.error);
+      }
+      btn.classList.remove('recording');
+      btn.title = '语音输入';
+      isRecording = false;
+    };
+  }
+
+  // ---- 显示下一题（支持暂挂队列）----
+  function showNextQuestion(nextQuestion, nextIndex, audioUrl) {
+    if (nextQuestion && nextIndex < M.state.totalQuestions) {
+      I.showQuestion(nextQuestion, nextIndex, audioUrl);
+      return;
+    }
+    // 主流程结束，检查暂挂题目
+    if (M.state.suspendedQuestions.length > 0) {
+      const suspended = M.state.suspendedQuestions.shift();
+      M.state.totalQuestions += 1;
+      M.state.currentQuestionIndex = suspended.index;
+      I.showQuestion(suspended.question, suspended.index, null);
+      M.toast('这是你之前跳过的第 ' + (suspended.index + 1) + ' 题');
+      return;
+    }
+    // 全部完成
+    document.getElementById('questionCount').textContent = '全部完成';
+    document.getElementById('evaluationResult').innerHTML =
+      '<div style="margin-top:16px;display:flex;gap:10px">' +
+        '<button class="btn btn-primary" style="flex:1" id="finishAllBtn">生成报告并结束</button>' +
+      '</div>';
+    document.getElementById('finishAllBtn').addEventListener('click', I.endInterview);
+  }
 
   function buildScoreTag(label, score) {
     const v = Number(score) || 0;
@@ -487,11 +698,12 @@ window.MockMate = window.MockMate || {};
       });
     }
 
-    // 操作按钮
+    // 操作按钮（导出 PDF 按钮添加 id=exportPdfBtn 供 print CSS 隐藏）
     html += '<div style="margin-top:16px;display:flex;gap:10px;flex-wrap:wrap">' +
       '<button class="btn btn-primary" style="flex:1" onclick="MockMate.switchTab(\'setup\')">返回首页</button>' +
       '<button class="btn btn-secondary" id="copyReportBtn">复制报告</button>' +
       '<button class="btn btn-secondary" id="downloadReportBtn">下载报告</button>' +
+      '<button class="btn btn-secondary" id="exportPdfReportBtn">导出 PDF</button>' +
       '</div>';
     html += '</div>';
 
@@ -499,6 +711,7 @@ window.MockMate = window.MockMate || {};
 
     document.getElementById('copyReportBtn').addEventListener('click', () => I.copyReport(area));
     document.getElementById('downloadReportBtn').addEventListener('click', () => I.downloadReport(result));
+    document.getElementById('exportPdfReportBtn').addEventListener('click', () => window.print());
 
     I.cleanup();
   };
@@ -566,8 +779,11 @@ window.MockMate = window.MockMate || {};
     M.state.interviewActive = false;
     M.state.currentSessionId = null;
     M.state.currentQuestionIndex = 0;
+    M.state.currentRound = null;
     M.state.isWrittenRound = false;
     M.state.totalQuestions = 0;
+    M.state.suspendedQuestions = [];
+    M.ls.remove('active_session');
   };
 
   // ---- 导出 ----
