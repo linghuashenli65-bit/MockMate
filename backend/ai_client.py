@@ -1,30 +1,16 @@
 """统一的 AI 客户端接口（异步）
 
 支持 MiMo 和 DeepSeek 双后端，自动路由和 fallback。
-用户可在设置页切换提供商。
+多用户模式下，API Key 从请求头获取，通过 with_keys() 创建临时客户端。
 """
 import logging
-from pathlib import Path
 from typing import Optional
-
-from dotenv import set_key
 
 from .config import AI_PROVIDER
 from .mimoclient import MiMoClient
 from .deepseek_client import DeepSeekClient
 
 logger = logging.getLogger(__name__)
-
-ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
-
-
-def _save_env(key: str, value: str):
-    """保存配置到 .env 文件"""
-    try:
-        set_key(str(ENV_FILE), key, value)
-        logger.info(f"配置已保存: {key}")
-    except Exception as e:
-        logger.warning(f"配置保存失败: {e}")
 
 
 class AIClient:
@@ -45,7 +31,6 @@ class AIClient:
         if value in ("mimo", "deepseek"):
             self._provider = value
             logger.info(f"AI 提供商切换为: {value}")
-            _save_env("AI_PROVIDER", value)
 
     @property
     def ready(self) -> bool:
@@ -65,6 +50,15 @@ class AIClient:
             elif self._provider == "deepseek" and self.mimo.ready:
                 self._provider = "mimo"
                 logger.info("自动切换到 MiMo（DeepSeek 未配置）")
+
+    def with_keys(self, mimo_key: Optional[str] = None, deepseek_key: Optional[str] = None,
+                  provider: Optional[str] = None) -> 'AIClient':
+        """创建使用指定 API Key 的临时客户端（共享 HTTP 连接池，无需关闭）"""
+        client = AIClient.__new__(AIClient)
+        client.mimo = self.mimo.with_key(mimo_key) if mimo_key else self.mimo
+        client.deepseek = self.deepseek.with_key(deepseek_key) if deepseek_key else self.deepseek
+        client._provider = provider if provider in ("mimo", "deepseek") else self._provider
+        return client
 
     async def reason(self, messages: list, **kwargs) -> Optional[str]:
         """推理/对话 - 首选当前提供商，失败时自动 fallback"""
@@ -111,18 +105,6 @@ class AIClient:
     async def text_to_speech(self, text: str) -> Optional[bytes]:
         """语音合成 - 仅 MiMo 支持"""
         return await self.mimo.text_to_speech(text)
-
-    def update_api_key(self, provider: str, key: str):
-        """更新 API Key，自动保存到 .env"""
-        if provider == "mimo":
-            self.mimo.api_key = key
-            _save_env("MIMO_API_KEY", key)
-            logger.info("MiMo API Key 已更新并保存")
-        elif provider == "deepseek":
-            self.deepseek.api_key = key
-            _save_env("DEEPSEEK_API_KEY", key)
-            logger.info("DeepSeek API Key 已更新并保存")
-        self._auto_switch_provider()
 
     async def close(self):
         await self.mimo.close()

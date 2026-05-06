@@ -2,6 +2,7 @@
 
 提供会话、缓存、搜索历史的持久化存储。
 如果 MySQL 不可用，自动回退到 JSON 文件存储。
+多用户模式下，所有数据查询按 user_id 隔离。
 """
 import json
 import logging
@@ -69,11 +70,13 @@ class Database:
                         report JSON,
                         current_question JSON,
                         current_index INT DEFAULT 0,
+                        user_id INT DEFAULT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_user_id (user_id)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                await cur.execute("""
+                    await cur.execute("""
                     CREATE TABLE IF NOT EXISTS research_cache (
                         position VARCHAR(255) PRIMARY KEY,
                         data JSON,
@@ -84,7 +87,7 @@ class Database:
                         cached_at DATETIME DEFAULT CURRENT_TIMESTAMP
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                await cur.execute("""
+                    await cur.execute("""
                     CREATE TABLE IF NOT EXISTS search_history (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         position VARCHAR(255) NOT NULL,
@@ -92,12 +95,13 @@ class Database:
                         skill_count INT DEFAULT 0,
                         topic_count INT DEFAULT 0,
                         tech_stack JSON,
+                        user_id INT DEFAULT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        INDEX idx_position (position),
+                        INDEX idx_user_id (user_id),
                         INDEX idx_created (created_at)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                await cur.execute("""
+                    await cur.execute("""
                     CREATE TABLE IF NOT EXISTS favorites (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         session_id VARCHAR(12) DEFAULT '',
@@ -108,10 +112,12 @@ class Database:
                         user_answer TEXT,
                         overall_score INT DEFAULT 0,
                         notes TEXT,
-                        saved_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                        user_id INT DEFAULT NULL,
+                        saved_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        INDEX idx_user_id (user_id)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                await cur.execute("""
+                    await cur.execute("""
                     CREATE TABLE IF NOT EXISTS custom_questions (
                         id INT AUTO_INCREMENT PRIMARY KEY,
                         question TEXT NOT NULL,
@@ -120,15 +126,36 @@ class Database:
                         topic VARCHAR(100) DEFAULT '',
                         expected_points JSON,
                         tags VARCHAR(200) DEFAULT '',
+                        user_id INT DEFAULT NULL,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                        INDEX idx_user_id (user_id)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
-                logger.info("数据库表初始化完成")
+                    # 迁移：补齐旧表可能缺失的字段
+                    for tbl, col, definition in [
+                        ("sessions", "user_id", "INT DEFAULT NULL"),
+                        ("search_history", "user_id", "INT DEFAULT NULL"),
+                        ("favorites", "user_id", "INT DEFAULT NULL"),
+                        ("custom_questions", "user_id", "INT DEFAULT NULL"),
+                    ]:
+                        try:
+                            await cur.execute(f"ALTER TABLE {tbl} ADD COLUMN {col} {definition}")
+                        except Exception:
+                            pass  # 字段已存在则忽略
+                    # 迁移：补齐缺失的索引
+                    for tbl, idx, col in [
+                        ("sessions", "idx_user_id", "user_id"),
+                    ]:
+                        try:
+                            await cur.execute(f"CREATE INDEX {idx} ON {tbl} ({col})")
+                        except Exception:
+                            pass
+                    logger.info("数据库表初始化完成")
 
     # ==================== 会话管理 ====================
 
-    async def save_session(self, session_id: str, data: dict):
+    async def save_session(self, session_id: str, data: dict, user_id: int = None):
         """保存或更新面试会话"""
         if not self.available:
             return await self._save_session_fallback(session_id, data)
@@ -136,8 +163,8 @@ class Database:
             async with conn.cursor() as cur:
                 await cur.execute("""
                     INSERT INTO sessions (id, position, company, round, resume, profile, history, report,
-                                         current_question, current_index, created_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                                         current_question, current_index, created_at, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON DUPLICATE KEY UPDATE
                         position=VALUES(position), company=VALUES(company),
                         round=VALUES(round),
@@ -157,6 +184,7 @@ class Database:
                     json.dumps(data.get("current_question", {}), ensure_ascii=False),
                     data.get("current_index", 0),
                     data.get("created_at", datetime.now().isoformat()),
+                    user_id,
                 ))
 
     async def load_session(self, session_id: str) -> Optional[dict]:
@@ -172,16 +200,22 @@ class Database:
                 columns = [desc[0] for desc in cur.description]
                 return self._row_to_session(row, columns)
 
-    async def list_sessions(self) -> list[dict]:
-        """列出所有面试记录摘要"""
+    async def list_sessions(self, user_id: int = None) -> list[dict]:
+        """列出面试记录摘要（按 user_id 隔离）"""
         if not self.available:
             return await self._list_sessions_fallback()
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("""
-                    SELECT id, position, company, round, created_at, history, report
-                    FROM sessions ORDER BY created_at DESC LIMIT 50
-                """)
+                if user_id:
+                    await cur.execute("""
+                        SELECT id, position, company, round, created_at, history, report
+                        FROM sessions WHERE user_id=%s ORDER BY created_at DESC LIMIT 50
+                    """, (user_id,))
+                else:
+                    await cur.execute("""
+                        SELECT id, position, company, round, created_at, history, report
+                        FROM sessions ORDER BY created_at DESC LIMIT 50
+                    """)
                 rows = await cur.fetchall()
                 result = []
                 for row in rows:
@@ -201,13 +235,16 @@ class Database:
                     })
                 return result
 
-    async def delete_session(self, session_id: str) -> bool:
-        """删除面试记录"""
+    async def delete_session(self, session_id: str, user_id: int = None) -> bool:
+        """删除面试记录（校验 user_id 所有权）"""
         if not self.available:
             return await self._delete_session_fallback(session_id)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("DELETE FROM sessions WHERE id=%s", (session_id,))
+                if user_id:
+                    await cur.execute("DELETE FROM sessions WHERE id=%s AND user_id=%s", (session_id, user_id))
+                else:
+                    await cur.execute("DELETE FROM sessions WHERE id=%s", (session_id,))
                 return cur.rowcount > 0
 
     def _row_to_session(self, row: tuple, columns: list) -> dict:
@@ -224,20 +261,21 @@ class Database:
             "report": json.loads(data["report"]) if data.get("report") else {},
             "current_question": json.loads(data["current_question"]) if data.get("current_question") else {},
             "current_index": data.get("current_index", 0),
+            "user_id": data.get("user_id"),
             "created_at": data["created_at"].isoformat() if data.get("created_at") else "",
         }
 
     # ==================== 题目收藏 ====================
 
-    async def save_favorite(self, data: dict) -> int:
+    async def save_favorite(self, data: dict, user_id: int = None) -> int:
         """收藏题目，返回收藏 ID"""
         if not self.available:
             return await self._save_favorite_fallback(data)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO favorites (session_id, question, type, difficulty, topic, user_answer, overall_score)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO favorites (session_id, question, type, difficulty, topic, user_answer, overall_score, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     data.get("session_id", ""),
                     data["question"],
@@ -246,19 +284,26 @@ class Database:
                     data.get("topic", ""),
                     data.get("user_answer", ""),
                     data.get("overall_score", 0),
+                    user_id,
                 ))
                 return cur.lastrowid
 
-    async def list_favorites(self) -> list[dict]:
-        """列出所有收藏题目"""
+    async def list_favorites(self, user_id: int = None) -> list[dict]:
+        """列出所有收藏题目（按 user_id 隔离）"""
         if not self.available:
             return await self._list_favorites_fallback()
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT id, session_id, question, type, difficulty, topic, user_answer, overall_score, saved_at "
-                    "FROM favorites ORDER BY saved_at DESC"
-                )
+                if user_id:
+                    await cur.execute(
+                        "SELECT id, session_id, question, type, difficulty, topic, user_answer, overall_score, saved_at "
+                        "FROM favorites WHERE user_id=%s ORDER BY saved_at DESC", (user_id,)
+                    )
+                else:
+                    await cur.execute(
+                        "SELECT id, session_id, question, type, difficulty, topic, user_answer, overall_score, saved_at "
+                        "FROM favorites ORDER BY saved_at DESC"
+                    )
                 rows = await cur.fetchall()
                 return [
                     {
@@ -275,26 +320,29 @@ class Database:
                     for r in rows
                 ]
 
-    async def delete_favorite(self, fav_id: int) -> bool:
-        """删除收藏题目"""
+    async def delete_favorite(self, fav_id: int, user_id: int = None) -> bool:
+        """删除收藏题目（校验 user_id 所有权）"""
         if not self.available:
             return await self._delete_favorite_fallback(fav_id)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("DELETE FROM favorites WHERE id=%s", (fav_id,))
+                if user_id:
+                    await cur.execute("DELETE FROM favorites WHERE id=%s AND user_id=%s", (fav_id, user_id))
+                else:
+                    await cur.execute("DELETE FROM favorites WHERE id=%s", (fav_id,))
                 return cur.rowcount > 0
 
     # ==================== 自定义题目 ====================
 
-    async def create_custom_question(self, data: dict) -> int:
+    async def create_custom_question(self, data: dict, user_id: int = None) -> int:
         """创建自定义题目，返回题目 ID"""
         if not self.available:
             return await self._create_custom_question_fallback(data)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO custom_questions (question, type, difficulty, topic, expected_points, tags)
-                    VALUES (%s, %s, %s, %s, %s, %s)
+                    INSERT INTO custom_questions (question, type, difficulty, topic, expected_points, tags, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
                 """, (
                     data["question"],
                     data.get("type", "技术"),
@@ -302,19 +350,26 @@ class Database:
                     data.get("topic", ""),
                     json.dumps(data.get("expected_points", []), ensure_ascii=False),
                     data.get("tags", ""),
+                    user_id,
                 ))
                 return cur.lastrowid
 
-    async def list_custom_questions(self) -> list[dict]:
-        """列出所有自定义题目"""
+    async def list_custom_questions(self, user_id: int = None) -> list[dict]:
+        """列出所有自定义题目（按 user_id 隔离）"""
         if not self.available:
             return await self._list_custom_questions_fallback()
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT id, question, type, difficulty, topic, expected_points, tags, created_at, updated_at "
-                    "FROM custom_questions ORDER BY updated_at DESC"
-                )
+                if user_id:
+                    await cur.execute(
+                        "SELECT id, question, type, difficulty, topic, expected_points, tags, created_at, updated_at "
+                        "FROM custom_questions WHERE user_id=%s ORDER BY updated_at DESC", (user_id,)
+                    )
+                else:
+                    await cur.execute(
+                        "SELECT id, question, type, difficulty, topic, expected_points, tags, created_at, updated_at "
+                        "FROM custom_questions ORDER BY updated_at DESC"
+                    )
                 rows = await cur.fetchall()
                 return [
                     {
@@ -354,35 +409,37 @@ class Database:
                     "tags": row[6] or "",
                 }
 
-    async def update_custom_question(self, qid: int, data: dict) -> bool:
-        """更新自定义题目"""
+    async def update_custom_question(self, qid: int, data: dict, user_id: int = None) -> bool:
+        """更新自定义题目（校验 user_id 所有权）"""
         if not self.available:
             return await self._update_custom_question_fallback(qid, data)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("""
-                    UPDATE custom_questions
-                    SET question=%s, type=%s, difficulty=%s, topic=%s,
-                        expected_points=%s, tags=%s
-                    WHERE id=%s
-                """, (
-                    data["question"],
-                    data.get("type", "技术"),
-                    data.get("difficulty", "medium"),
-                    data.get("topic", ""),
-                    json.dumps(data.get("expected_points", []), ensure_ascii=False),
-                    data.get("tags", ""),
-                    qid,
-                ))
+                if user_id:
+                    sql = """UPDATE custom_questions SET question=%s, type=%s, difficulty=%s, topic=%s,
+                             expected_points=%s, tags=%s WHERE id=%s AND user_id=%s"""
+                    params = (data["question"], data.get("type", "技术"), data.get("difficulty", "medium"),
+                              data.get("topic", ""), json.dumps(data.get("expected_points", []), ensure_ascii=False),
+                              data.get("tags", ""), qid, user_id)
+                else:
+                    sql = """UPDATE custom_questions SET question=%s, type=%s, difficulty=%s, topic=%s,
+                             expected_points=%s, tags=%s WHERE id=%s"""
+                    params = (data["question"], data.get("type", "技术"), data.get("difficulty", "medium"),
+                              data.get("topic", ""), json.dumps(data.get("expected_points", []), ensure_ascii=False),
+                              data.get("tags", ""), qid)
+                await cur.execute(sql, params)
                 return cur.rowcount > 0
 
-    async def delete_custom_question(self, qid: int) -> bool:
-        """删除自定义题目"""
+    async def delete_custom_question(self, qid: int, user_id: int = None) -> bool:
+        """删除自定义题目（校验 user_id 所有权）"""
         if not self.available:
             return await self._delete_custom_question_fallback(qid)
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute("DELETE FROM custom_questions WHERE id=%s", (qid,))
+                if user_id:
+                    await cur.execute("DELETE FROM custom_questions WHERE id=%s AND user_id=%s", (qid, user_id))
+                else:
+                    await cur.execute("DELETE FROM custom_questions WHERE id=%s", (qid,))
                 return cur.rowcount > 0
 
     async def list_custom_question_ids(self, ids: list[int]) -> list[dict]:
@@ -479,33 +536,41 @@ class Database:
 
     # ==================== 搜索历史 ====================
 
-    async def save_search_history(self, position: str, data: dict):
+    async def save_search_history(self, position: str, data: dict, user_id: int = None):
         """记录搜索历史"""
         if not self.available:
             return
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO search_history (position, summary, skill_count, topic_count, tech_stack)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO search_history (position, summary, skill_count, topic_count, tech_stack, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
                 """, (
                     position,
                     data.get("summary", "")[:500],
                     len(data.get("required_skills", [])),
                     len(data.get("common_interview_topics", [])),
                     json.dumps(data.get("tech_stack", []), ensure_ascii=False),
+                    user_id,
                 ))
 
-    async def get_search_history(self, limit: int = 20) -> list[dict]:
-        """获取搜索历史"""
+    async def get_search_history(self, limit: int = 20, user_id: int = None) -> list[dict]:
+        """获取搜索历史（按 user_id 隔离）"""
         if not self.available:
             return []
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                await cur.execute(
-                    "SELECT id, position, summary, skill_count, topic_count, created_at "
-                    "FROM search_history ORDER BY created_at DESC LIMIT %s", (limit,)
-                )
+                if user_id:
+                    await cur.execute(
+                        "SELECT id, position, summary, skill_count, topic_count, created_at "
+                        "FROM search_history WHERE user_id=%s ORDER BY created_at DESC LIMIT %s",
+                        (user_id, limit),
+                    )
+                else:
+                    await cur.execute(
+                        "SELECT id, position, summary, skill_count, topic_count, created_at "
+                        "FROM search_history ORDER BY created_at DESC LIMIT %s", (limit,)
+                    )
                 rows = await cur.fetchall()
                 return [
                     {

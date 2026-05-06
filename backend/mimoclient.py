@@ -21,6 +21,16 @@ class MiMoClient:
             base_url=self.base_url,
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
+        self._owns_client = True
+
+    def with_key(self, api_key: str) -> 'MiMoClient':
+        """返回使用不同 API Key 的实例（共享 HTTP 连接池）"""
+        client = MiMoClient.__new__(MiMoClient)
+        client.api_key = api_key
+        client.base_url = self.base_url
+        client._client = self._client
+        client._owns_client = False
+        return client
 
     @property
     def ready(self) -> bool:
@@ -116,4 +126,5 @@ class MiMoClient:
             return None
 
     async def close(self):
-        await self._client.aclose()
+        if self._owns_client:
+            await self._client.aclose()

@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MockMate - 登录</title>
+<link rel="stylesheet" href="css/style.css">
+<style>
+/* -------- 登录页专用样式 -------- */
+body {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 100vh; background: var(--bg);
+}
+.login-page {
+  width: 380px; max-width: 90vw;
+  padding: 40px 28px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.login-page h1 {
+  text-align: center; font-size: 26px; margin-bottom: 4px;
+  background: linear-gradient(135deg, var(--accent2), var(--accent));
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+.login-page .sub {
+  text-align: center; font-size: 13px; color: var(--text2); margin-bottom: 28px;
+}
+.login-page .form-group { margin-bottom: 16px; }
+.login-page .form-group label {
+  font-size: 12px; color: var(--text2); margin-bottom: 4px; display: block;
+}
+.login-page .form-group input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+  background: var(--bg); color: var(--text); border-radius: 6px; font-size: 14px;
+  outline: none; transition: border-color .2s;
+}
+.login-page .form-group input:focus { border-color: var(--accent); }
+.login-page .btn-primary { width: 100%; padding: 12px; font-size: 15px; }
+.login-page .auth-tabs {
+  display: flex; gap: 0; margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.login-page .auth-tab {
+  flex: 1; padding: 10px; background: none; border: none; color: var(--text2);
+  font-size: 15px; cursor: pointer; border-bottom: 2px solid transparent;
+  transition: all .2s;
+}
+.login-page .auth-tab.active { color: var(--accent2); border-bottom-color: var(--accent); }
+.login-page .auth-content { display: none; }
+.login-page .auth-content.active { display: block; }
+.login-page .code-row { display: flex; gap: 8px; }
+.login-page .code-row input { flex: 1; }
+.login-page .bottom-link { margin-top: 12px; text-align: center; font-size: 12px; color: var(--text2); }
+.login-page .bottom-link a { color: var(--accent2); cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div class="login-page">
+  <h1>MockMate</h1>
+  <div class="sub">AI 面试模拟陪练</div>
+
+  <div class="auth-tabs">
+    <button class="auth-tab active" data-auth-tab="login" onclick="switchAuthTab('login')">登录</button>
+    <button class="auth-tab" data-auth-tab="register" onclick="switchAuthTab('register')">注册</button>
+  </div>
+
+  <!-- 登录 -->
+  <div class="auth-content active" id="auth-login">
+    <div class="form-group">
+      <label>邮箱</label>
+      <input type="email" id="loginEmail" placeholder="请输入邮箱" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="loginPassword" placeholder="请输入密码" autocomplete="current-password">
+    </div>
+    <button class="btn btn-primary" id="loginBtn" onclick="doLogin()">登录</button>
+    <div class="bottom-link">
+      还没有账号？<a onclick="switchAuthTab('register')">立即注册</a>
+    </div>
+  </div>
+
+  <!-- 注册 -->
+  <div class="auth-content" id="auth-register">
+    <div class="form-group">
+      <label>邮箱</label>
+      <input type="email" id="regEmail" placeholder="请输入邮箱" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label>昵称（选填）</label>
+      <input type="text" id="regNickname" placeholder="如何称呼你">
+    </div>
+    <div class="form-group">
+      <label>密码</label>
+      <input type="password" id="regPassword" placeholder="至少 6 位" autocomplete="new-password">
+    </div>
+    <div class="form-group">
+      <label>邮箱验证码</label>
+      <div class="code-row">
+        <input type="text" id="regCode" placeholder="输入验证码">
+        <button class="btn btn-secondary btn-sm" id="sendCodeBtn" onclick="sendCode()">发送验证码</button>
+      </div>
+    </div>
+    <button class="btn btn-primary" id="registerBtn" onclick="doRegister()">注册</button>
+    <div class="bottom-link">
+      已有账号？<a onclick="switchAuthTab('login')">立即登录</a>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// ========== 全局工具 ==========
+var toastTimer;
+function toast(msg) {
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(function() { el.classList.remove('show'); }, 3000);
+}
+
+function setBtnLoading(btn, loading, text) {
+  if (loading) {
+    btn._origText = btn.textContent;
+    btn.disabled = true; btn.classList.add('loading');
+    btn.textContent = text || '处理中...';
+  } else {
+    btn.disabled = false; btn.classList.remove('loading');
+    btn.textContent = btn._origText || text || '提交';
+  }
+}
+
+// ========== Auth Tab ==========
+function switchAuthTab(tab) {
+  document.querySelectorAll('.auth-tab').forEach(function(t) {
+    t.classList.toggle('active', t.dataset.authTab === tab);
+  });
+  document.querySelectorAll('.auth-content').forEach(function(c) {
+    c.classList.toggle('active', c.id === 'auth-' + tab);
+  });
+}
+
+// ========== 发送验证码 ==========
+function sendCode() {
+  var email = document.getElementById('regEmail').value.trim();
+  if (!email || email.indexOf('@') === -1) { toast('请输入有效邮箱'); return; }
+  var btn = document.getElementById('sendCodeBtn');
+  setBtnLoading(btn, true, '发送中...');
+  fetch('/api/auth/send-code', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email }),
+  }).then(function(r) { return r.json(); }).then(function(res) {
+    toast('验证码已发送');
+    if (res.dev_code) {
+      toast('开发模式，验证码: ' + res.dev_code);
+      document.getElementById('regCode').value = res.dev_code;
+    }
+    var countdown = 60; btn.disabled = true; btn.textContent = countdown + 's';
+    var timer = setInterval(function() {
+      countdown--; btn.textContent = countdown + 's';
+      if (countdown <= 0) { clearInterval(timer); btn.disabled = false; btn.textContent = '发送验证码'; }
+    }, 1000);
+  }).catch(function(e) {
+    toast('发送失败');
+    setBtnLoading(btn, false, '发送验证码');
+  });
+}
+
+// ========== 注册 ==========
+function doRegister() {
+  var email = document.getElementById('regEmail').value.trim();
+  var nickname = document.getElementById('regNickname').value.trim();
+  var password = document.getElementById('regPassword').value;
+  var code = document.getElementById('regCode').value.trim();
+  if (!email || email.indexOf('@') === -1) { toast('请输入有效邮箱'); return; }
+  if (password.length < 6) { toast('密码至少 6 位'); return; }
+  if (!code) { toast('请输入验证码'); return; }
+
+  var btn = document.getElementById('registerBtn');
+  setBtnLoading(btn, true, '注册中...');
+  fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, password: password, code: code, nickname: nickname }),
+  }).then(function(r) {
+    if (!r.ok) { return r.json().then(function(d) { throw new Error(d.detail || '注册失败'); }); }
+    return r.json();
+  }).then(function(res) {
+    localStorage.setItem('mockmate_auth_token', res.token);
+    localStorage.setItem('mockmate_user_email', res.user.email);
+    localStorage.setItem('mockmate_user_nickname', res.user.nickname);
+    window.location.href = '/';
+  }).catch(function(e) {
+    toast('注册失败: ' + e.message);
+    setBtnLoading(btn, false, '注册');
+  });
+}
+
+// ========== 登录 ==========
+function doLogin() {
+  var email = document.getElementById('loginEmail').value.trim();
+  var password = document.getElementById('loginPassword').value;
+  if (!email || !password) { toast('请输入邮箱和密码'); return; }
+
+  var btn = document.getElementById('loginBtn');
+  setBtnLoading(btn, true, '登录中...');
+  fetch('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email, password: password }),
+  }).then(function(r) {
+    if (!r.ok) { return r.json().then(function(d) { throw new Error(d.detail || '登录失败'); }); }
+    return r.json();
+  }).then(function(res) {
+    localStorage.setItem('mockmate_auth_token', res.token);
+    localStorage.setItem('mockmate_user_email', res.user.email);
+    localStorage.setItem('mockmate_user_nickname', res.user.nickname);
+    window.location.href = '/';
+  }).catch(function(e) {
+    toast('登录失败: ' + e.message);
+    setBtnLoading(btn, false, '登录');
+  });
+}
+
+// Enter 键提交
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') {
+    var login = document.getElementById('auth-login');
+    if (login.classList.contains('active')) doLogin();
+    else doRegister();
+  }
+});
+</script>
+
+</body>
+</html>

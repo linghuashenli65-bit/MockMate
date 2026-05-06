@@ -29,16 +29,16 @@ DATA_DIR.mkdir(exist_ok=True)
 (DATA_DIR / "sessions").mkdir(exist_ok=True)
 (DATA_DIR / "audios").mkdir(exist_ok=True)
 
-# 服务器
-HOST = "127.0.0.1"
-PORT = 18633
+# 服务器（支持通过环境变量覆盖）
+HOST = os.environ.get("MOCKMATE_HOST", "0.0.0.0")
+PORT = int(os.environ.get("MOCKMATE_PORT", "18633"))
 
-# MiMo API
-MIMO_API_BASE = "https://api.mimo.xiaomi.com/v1"
+# MiMo API（2025-12 更新：旧端点 api.mimo.xiaomi.com 已停用，模型名也已变更）
+MIMO_API_BASE = "https://api.xiaomimimo.com/v1"
 MIMO_API_KEY = os.environ.get("MIMO_API_KEY", "")
-MIMO_MODEL_REASONING = "MiMo-v2.5-reasoning"
-MIMO_MODEL_MULTIMODAL = "MiMo-v2.5-vision"
-MIMO_MODEL_TTS = "MiMo-v2.5-tts"
+MIMO_MODEL_REASONING = "mimo-v2-pro"
+MIMO_MODEL_MULTIMODAL = "mimo-v2-omni"
+MIMO_MODEL_TTS = "mimo-v2-tts"
 
 # DeepSeek API
 DEEPSEEK_API_BASE = "https://api.deepseek.com/v1"
@@ -57,3 +57,29 @@ MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "3306"))
 MYSQL_USER = os.environ.get("MYSQL_USER", "root")
 MYSQL_PASSWORD = os.environ.get("MYSQL_PASSWORD", "")
 MYSQL_DATABASE = os.environ.get("MYSQL_DATABASE", "mockmate")
+
+# JWT 认证
+SECRET_KEY = os.environ.get("SECRET_KEY", "mockmate-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_HOURS = int(os.environ.get("JWT_EXPIRE_HOURS", "72"))
+
+# 邮箱验证码（SMTP）
+# 兼容两种环境变量命名：SMTP_*（标准）或 EMAIL_*（用户习惯）
+_email_user = os.environ.get("SMTP_USER") or os.environ.get("EMAIL_USER", "")
+_email_pass = os.environ.get("SMTP_PASSWORD") or os.environ.get("EMAIL_KEY", "")
+SMTP_USER = _email_user
+SMTP_PASSWORD = _email_pass
+# 自动根据邮箱域名推断 SMTP 服务器
+if _email_user and "@qq.com" in _email_user:
+    SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.qq.com")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+elif _email_user and "@163.com" in _email_user:
+    SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.163.com")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+elif _email_user and "@gmail.com" in _email_user:
+    SMTP_HOST = os.environ.get("SMTP_HOST", "smtp.gmail.com")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "587"))
+else:
+    SMTP_HOST = os.environ.get("SMTP_HOST", "")
+    SMTP_PORT = int(os.environ.get("SMTP_PORT", "465"))
+SMTP_FROM = os.environ.get("SMTP_FROM") or _email_user

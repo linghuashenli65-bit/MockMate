@@ -8,10 +8,10 @@ window.MockMate = window.MockMate || {};
 
   // ---- 常量 ----
   M.ROUND_NAMES = {
-    written:       '笔试',
-    tech_1:        '技术一面',
-    tech_2:        '技术二面',
-    comprehensive: '综合面',
+    written:       '笔试 - 理论基础与知识广度',
+    tech_1:        '技术一面 - 工程实践与编码能力',
+    tech_2:        '技术二面 - 架构设计与技术深度',
+    comprehensive: '综合面 - 综合素质与发展潜力',
     custom:        '自定义练习',
   };
 
@@ -103,6 +103,110 @@ window.MockMate = window.MockMate || {};
       try { localStorage.setItem('mockmate_' + key, JSON.stringify(value)); }
       catch(e) { /* ignore */ }
     },
+  };
+
+  // ---- API Key 加密存储（AES-GCM via Web Crypto API）----
+  M.Crypto = {
+    _keyCache: {},  // email -> CryptoKey
+
+    async _deriveKey(email) {
+      if (this._keyCache[email]) return this._keyCache[email];
+      var encoder = new TextEncoder();
+      var keyMaterial = await crypto.subtle.importKey(
+        'raw', encoder.encode(email), 'PBKDF2', false, ['deriveKey']
+      );
+      var key = await crypto.subtle.deriveKey(
+        { name: 'PBKDF2', salt: encoder.encode('MockMate-ApiKey-Salt-v1'), iterations: 100000, hash: 'SHA-256' },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt', 'decrypt']
+      );
+      this._keyCache[email] = key;
+      return key;
+    },
+
+    async _encrypt(key, plaintext) {
+      var encoder = new TextEncoder();
+      var iv = crypto.getRandomValues(new Uint8Array(12));
+      var ciphertext = await crypto.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        encoder.encode(plaintext)
+      );
+      var combined = new Uint8Array(iv.length + ciphertext.byteLength);
+      combined.set(iv);
+      combined.set(new Uint8Array(ciphertext), iv.length);
+      return btoa(String.fromCharCode.apply(null, combined));
+    },
+
+    async _decrypt(key, cipherB64) {
+      var combined = Uint8Array.from(atob(cipherB64), function(c) { return c.charCodeAt(0); });
+      var iv = combined.slice(0, 12);
+      var ciphertext = combined.slice(12);
+      var decrypted = await crypto.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        ciphertext
+      );
+      return new TextDecoder().decode(decrypted);
+    },
+
+    async storeApiKey(email, name, value) {
+      if (!value) {
+        M.ls.remove('enc_' + name);
+        return;
+      }
+      try {
+        var key = await this._deriveKey(email);
+        var encrypted = await this._encrypt(key, value);
+        M.ls.set('enc_' + name, encrypted);
+      } catch(e) {
+        console.warn('API Key 加密存储失败:', e);
+      }
+    },
+
+    async loadApiKey(email, name) {
+      var encrypted = M.ls.get('enc_' + name);
+      if (!encrypted) return '';
+      try {
+        var key = await this._deriveKey(email);
+        return await this._decrypt(key, encrypted);
+      } catch(e) {
+        console.warn('API Key 解密失败:', e);
+        return '';
+      }
+    },
+
+    async loadAllApiKeys(email) {
+      var userEmail = email || M.ls.get('user_email', 'default');
+      var mimo = await this.loadApiKey(userEmail, 'mimo_api_key');
+      var deepseek = await this.loadApiKey(userEmail, 'deepseek_api_key');
+      var provider = M.ls.get('ai_provider', 'mimo');
+      return { mimo_api_key: mimo, deepseek_api_key: deepseek, provider: provider };
+    },
+
+    async saveAllApiKeys(email, keys) {
+      var userEmail = email || M.ls.get('user_email', 'default');
+      if (keys.mimo_api_key !== undefined) {
+        await this.storeApiKey(userEmail, 'mimo_api_key', keys.mimo_api_key);
+      }
+      if (keys.deepseek_api_key !== undefined) {
+        await this.storeApiKey(userEmail, 'deepseek_api_key', keys.deepseek_api_key);
+      }
+      if (keys.provider) {
+        M.ls.set('ai_provider', keys.provider);
+      }
+    }
+  };
+
+  // ---- API Key 内存缓存（由 app.js 初始化）----
+  M.refreshApiKeys = async function (email) {
+    try {
+      M.state._apiKeys = await M.Crypto.loadAllApiKeys(email);
+    } catch(e) {
+      console.warn('加载 API Key 失败:', e);
+    }
   };
 
   // ---- Format date ----

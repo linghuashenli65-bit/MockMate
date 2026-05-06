@@ -22,6 +22,11 @@ window.MockMate = window.MockMate || {};
     countdownPaused: false,
     drafts: {},              // 草稿缓存 { "sessionId_qIndex": "text" }
     suspendedQuestions: [],  // 跳过/暂挂的题目
+    _apiKeys: {              // API Key 内存缓存（解密后的明文）
+      mimo_api_key: '',
+      deepseek_api_key: '',
+      provider: 'mimo',
+    },
   };
 
   // ---- Tab 切换 ----
@@ -49,9 +54,9 @@ window.MockMate = window.MockMate || {};
   // ---- 服务状态 ----
   M.checkStatus = async function () {
     try {
-      const s = await M.API.get('/api/status');
-      const dot = document.getElementById('statusDot');
-      const txt = document.getElementById('statusText');
+      var s = await M.API.get('/api/status');
+      var dot = document.getElementById('statusDot');
+      var txt = document.getElementById('statusText');
 
       if (s.provider === 'mimo' && s.mimo_ready) {
         dot.className = 'dot green'; txt.textContent = 'MiMo 已连接';
@@ -63,7 +68,7 @@ window.MockMate = window.MockMate || {};
         dot.className = 'dot red'; txt.textContent = '未配置 API';
       }
 
-      const sel = document.getElementById('providerSelect');
+      var sel = document.getElementById('providerSelect');
       if (sel) sel.value = s.provider;
     } catch(e) {
       document.getElementById('statusDot').className = 'dot red';
@@ -233,7 +238,15 @@ window.MockMate = window.MockMate || {};
     M.restoreFormMemory();
     M.bindFormMemory();
     M.registerShortcuts();
-    M.checkStatus();
+
+    // 检查登录状态（未登录会自动跳转到 login.html）
+    var userEmail = M.Auth.checkAuth();
+    if (!userEmail) return;  // checkAuth 会 redirect，这里只是兜底
+
+    // 加载加密存储的 API Key 到内存（异步，不阻塞界面）
+    M.refreshApiKeys(userEmail).then(function() {
+      M.checkStatus();
+    });
 
     // 绑定各个模块的事件
     M.Research.init();

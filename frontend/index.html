@@ -19,6 +19,10 @@
       <span class="dot" id="statusDot"></span>
       <span id="statusText">连接中...</span>
     </div>
+    <div class="user-info" id="userInfo" style="display:none">
+      <span id="userNickname"></span>
+      <button class="btn btn-sm btn-secondary" id="logoutBtn" onclick="MockMate.Auth.logout()">退出</button>
+    </div>
   </header>
 
   <!-- Tab Navigation -->
@@ -56,32 +60,32 @@
       <div class="form-group">
         <label>面试轮次</label>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="roundSelector">
+          <label class="round-option" data-round="written">
+            <input type="radio" name="round" value="written">
+            <div>
+              <div class="round-name">笔试</div>
+              <div class="round-desc">理论基础 · 知识广度 · 客观题</div>
+            </div>
+          </label>
           <label class="round-option" data-round="tech_1">
             <input type="radio" name="round" value="tech_1" checked>
             <div>
               <div class="round-name">技术一面</div>
-              <div class="round-desc">项目经验 + 技术基础深入</div>
+              <div class="round-desc">编码实践 · 代码审查 · 工程判断</div>
             </div>
           </label>
           <label class="round-option" data-round="tech_2">
             <input type="radio" name="round" value="tech_2">
             <div>
               <div class="round-name">技术二面</div>
-              <div class="round-desc">系统设计 + 架构 + 深度原理</div>
+              <div class="round-desc">架构设计 · 技术深度 · 权衡分析</div>
             </div>
           </label>
           <label class="round-option" data-round="comprehensive">
             <input type="radio" name="round" value="comprehensive">
             <div>
               <div class="round-name">综合面</div>
-              <div class="round-desc">综合素质 + 行为面试 + 职业规划</div>
-            </div>
-          </label>
-          <label class="round-option" data-round="written">
-            <input type="radio" name="round" value="written">
-            <div>
-              <div class="round-name">笔试</div>
-              <div class="round-desc">选择题 + 判断题，AI 自动判卷解析</div>
+              <div class="round-desc">领导力 · 成长思维 · 跨团队协作</div>
             </div>
           </label>
         </div>
@@ -102,12 +106,21 @@
     </div>
 
     <div class="card">
-      <h2>3. 开始面试</h2>
+      <h2>3. 简历评分</h2>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
+        评估简历与目标岗位的匹配度，低于 70 分建议优化后再面试。
+      </p>
+      <button class="btn btn-primary" id="scoreResumeBtn">开始评分</button>
+      <div id="scoreResult" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>4. 开始面试</h2>
       <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
         准备好后点击下方按钮，AI 面试官将根据你的简历和岗位要求进行模拟面试。
       </p>
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <button class="btn btn-primary" id="startInterviewBtn">开始模拟面试</button>
+        <button class="btn btn-primary" id="startInterviewBtn" disabled>开始模拟面试</button>
         <label style="display:flex;align-items:center;cursor:pointer;font-size:13px;gap:8px;flex-shrink:0">
           <input type="checkbox" id="useCustomQuestions" class="custom-checkbox" style="width:auto">
           <span>使用自定义题目 <span style="font-size:11px;color:var(--text2)">（需先在「自定义题目」标签页添加）</span></span>
@@ -167,6 +180,9 @@
     </div>
     <div class="card">
       <h2>API Key 配置</h2>
+      <div style="font-size:12px;color:var(--text2);line-height:1.6;margin-bottom:12px;padding:8px;background:var(--surface2);border-radius:6px">
+        API Key 加密存储在浏览器本地，不会上传到服务器。清除浏览器数据将丢失已保存的 Key。
+      </div>
       <div class="setting-row">
         <label>MiMo API Key</label>
         <input type="password" id="mimoKeyInput" placeholder="输入 MiMo API Key">
@@ -203,6 +219,7 @@
 <script src="js/history.js"></script>
 <script src="js/favorites.js"></script>
 <script src="js/custom.js"></script>
+<script src="js/auth.js"></script>
 <script src="js/settings.js"></script>
 
 </body>

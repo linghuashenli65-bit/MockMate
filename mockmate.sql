@@ -7,6 +7,19 @@ CREATE DATABASE IF NOT EXISTS mockmate
 
 USE mockmate;
 
+-- ==================== 用户表 ====================
+CREATE TABLE IF NOT EXISTS users (
+    id               INT            AUTO_INCREMENT PRIMARY KEY COMMENT '用户ID',
+    email            VARCHAR(255)   UNIQUE NOT NULL COMMENT '邮箱（登录名）',
+    hashed_password  VARCHAR(255)   NOT NULL       COMMENT '加密密码（bcrypt）',
+    nickname         VARCHAR(100)   DEFAULT ''     COMMENT '用户昵称',
+    is_verified      TINYINT        DEFAULT 0      COMMENT '是否已验证邮箱',
+    is_active        TINYINT        DEFAULT 1      COMMENT '是否启用',
+    created_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '注册时间',
+    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_email (email)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户表';
+
 -- ==================== 面试会话表 ====================
 CREATE TABLE IF NOT EXISTS sessions (
     id               VARCHAR(12)    PRIMARY KEY COMMENT '会话ID（UUID前12位）',
@@ -19,8 +32,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     report           JSON                       COMMENT '面试报告JSON',
     current_question JSON                       COMMENT '当前题目JSON',
     current_index    INT            DEFAULT 0   COMMENT '当前题目索引',
+    user_id          INT            DEFAULT NULL COMMENT '所属用户ID',
     created_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='面试会话表';
 
 -- ==================== 岗位研究缓存表 ====================
@@ -42,8 +57,9 @@ CREATE TABLE IF NOT EXISTS search_history (
     skill_count  INT            DEFAULT 0      COMMENT '技能数量',
     topic_count  INT            DEFAULT 0      COMMENT '话题数量',
     tech_stack   JSON                          COMMENT '技术栈JSON',
+    user_id      INT            DEFAULT NULL   COMMENT '所属用户ID',
     created_at   DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '搜索时间',
-    INDEX idx_position (position),
+    INDEX idx_user_id (user_id),
     INDEX idx_created  (created_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='岗位搜索历史表';
 
@@ -58,7 +74,9 @@ CREATE TABLE IF NOT EXISTS favorites (
     user_answer    TEXT                          COMMENT '用户的回答',
     overall_score  INT            DEFAULT 0      COMMENT '综合得分',
     notes          TEXT                          COMMENT '备注',
-    saved_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间'
+    user_id        INT            DEFAULT NULL   COMMENT '所属用户ID',
+    saved_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '收藏时间',
+    INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='题目收藏表';
 
 -- ==================== 自定义题目表 ====================
@@ -70,6 +88,8 @@ CREATE TABLE IF NOT EXISTS custom_questions (
     topic            VARCHAR(100)   DEFAULT ''     COMMENT '主题',
     expected_points  JSON                          COMMENT '考察要点JSON',
     tags             VARCHAR(200)   DEFAULT ''     COMMENT '标签(逗号分隔)',
+    user_id          INT            DEFAULT NULL   COMMENT '所属用户ID',
     created_at       DATETIME       DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+    updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自定义题目表';

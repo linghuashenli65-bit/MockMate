@@ -10,9 +10,16 @@ window.MockMate = window.MockMate || {};
 
   // ---- 初始化事件绑定 ----
   I.init = function () {
+    var ok = true;
+    ['startInterviewBtn','endInterviewBtn','resumeUpload','scoreResumeBtn','resumeInput'].forEach(function(id) {
+      if (!document.getElementById(id)) { console.warn('MockMate: missing element', id); ok = false; }
+    });
     document.getElementById('startInterviewBtn').addEventListener('click', I.startInterview);
     document.getElementById('endInterviewBtn').addEventListener('click', I.endInterview);
     document.getElementById('resumeUpload').addEventListener('change', I.handleResumeUpload);
+    document.getElementById('scoreResumeBtn').addEventListener('click', I.scoreResume);
+    document.getElementById('resumeInput').addEventListener('input', I.clearScore);
+    if (ok) console.log('MockMate: Interview init OK');
   };
 
   // ---- 简历上传 ----
@@ -31,6 +38,72 @@ window.MockMate = window.MockMate || {};
     } catch(e) {
       M.toast('简历识别失败: ' + e.message);
     }
+    I.clearScore();
+  };
+
+  // ---- 简历评分 ----
+  I.clearScore = function () {
+    M.state._resumeScore = null;
+    document.getElementById('scoreResult').innerHTML = '';
+    document.getElementById('startInterviewBtn').disabled = true;
+  };
+
+  I.scoreResume = async function () {
+    const resume = document.getElementById('resumeInput').value.trim();
+    const profile = M.state.currentProfile;
+    if (!resume) { M.toast('请先填写或上传简历'); return; }
+    if (!profile || Object.keys(profile).length === 0) { M.toast('请先生成岗位画像'); return; }
+
+    const btn = document.getElementById('scoreResumeBtn');
+    M.setBtnLoading(btn, true, '评分中...');
+    document.getElementById('scoreResult').innerHTML = '<div style="text-align:center;padding:20px;color:var(--text2)">AI 正在评估简历匹配度...</div>';
+
+    try {
+      const result = await M.API.post('/api/resume/score', { resume, profile });
+      M.state._resumeScore = result;
+      I.renderScore(result);
+      if (result.score >= 70) {
+        document.getElementById('startInterviewBtn').disabled = false;
+        M.toast('简历评分 ' + result.score + ' 分，可以开始面试');
+      } else {
+        document.getElementById('startInterviewBtn').disabled = true;
+        M.toast('简历评分 ' + result.score + ' 分，建议优化后再面试');
+      }
+    } catch(e) {
+      document.getElementById('scoreResult').innerHTML = '<div style="color:var(--red);padding:10px">评分失败: ' + e.message + '</div>';
+      M.toast('评分失败: ' + e.message);
+    }
+    M.setBtnLoading(btn, false, '重新评分');
+  };
+
+  I.renderScore = function (result) {
+    const score = Math.min(100, Math.max(0, result.score));
+    let color, label;
+    if (score >= 90) { color = 'var(--green)'; label = '非常匹配'; }
+    else if (score >= 70) { color = 'var(--green)'; label = '良好匹配'; }
+    else if (score >= 60) { color = 'var(--yellow)'; label = '部分匹配'; }
+    else if (score >= 50) { color = 'var(--yellow)'; label = '匹配度较低'; }
+    else { color = 'var(--red)'; label = '匹配度低'; }
+
+    var strengthsHtml = (result.strengths || []).map(function (s) { return '<li class="strength">' + M.esc(s) + '</li>'; }).join('');
+    var weaknessesHtml = (result.weaknesses || []).map(function (s) { return '<li class="weakness">' + M.esc(s) + '</li>'; }).join('');
+    var suggestionsHtml = (result.suggestions || []).map(function (s) { return '<li class="suggestion">' + M.esc(s) + '</li>'; }).join('');
+
+    document.getElementById('scoreResult').innerHTML =
+      '<div style="padding:16px 0">' +
+        '<div style="display:flex;align-items:center;gap:16px;margin-bottom:12px">' +
+          '<div class="score-number" style="color:' + color + '">' + score + '</div>' +
+          '<div>' +
+            '<div class="score-label" style="color:' + color + '">' + label + '</div>' +
+            '<div class="score-bar">' +
+              '<div class="score-bar-fill" style="width:' + score + '%;background:' + color + '"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        (strengthsHtml ? '<div class="score-section-title" style="color:var(--green)">优势</div><ul class="score-detail-list">' + strengthsHtml + '</ul>' : '') +
+        (weaknessesHtml ? '<div class="score-section-title" style="color:var(--yellow)">不足</div><ul class="score-detail-list">' + weaknessesHtml + '</ul>' : '') +
+        (suggestionsHtml ? '<div class="score-section-title" style="color:var(--accent2)">优化建议</div><ul class="score-detail-list">' + suggestionsHtml + '</ul>' : '') +
+      '</div>';
   };
 
   // ---- 计时器 ----
@@ -174,6 +247,17 @@ window.MockMate = window.MockMate || {};
 
     if (!resume) { M.toast('请先填写或上传简历'); return; }
     if (!position) { M.toast('请填写目标岗位'); return; }
+
+    // 检查简历评分
+    if (!M.state._resumeScore) {
+      M.toast('请先对简历进行评分');
+      document.getElementById('scoreResumeBtn').scrollIntoView({ behavior: 'smooth' });
+      return;
+    }
+    if (M.state._resumeScore.score < 70) {
+      M.toast('简历评分 ' + M.state._resumeScore.score + ' 分，低于 70 分无法开始面试，请优化简历');
+      return;
+    }
 
     const btn = document.getElementById('startInterviewBtn');
     M.setBtnLoading(btn, true, '正在准备面试...');
@@ -438,8 +522,17 @@ window.MockMate = window.MockMate || {};
             '<button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>' +
           '</div>';
       } else {
+        // 根据轮次显示不同的评分标题
+        const roundEvalLabels = {
+          'tech_1':        '工程能力评估',
+          'tech_2':        '架构深度评估',
+          'comprehensive': '综合素质评估',
+        };
+        const evalTitle = roundEvalLabels[M.state.currentRound] || '面试评估';
+
         evalBox.innerHTML =
           '<div class="feedback-box">' +
+            '<div style="font-size:12px;color:var(--accent2);margin-bottom:8px;font-weight:600">' + evalTitle + '</div>' +
             '<div class="score-row">' +
               buildScoreTag('综合', ev.overall_score) +
               buildScoreTag('技术', ev.technical_score) +

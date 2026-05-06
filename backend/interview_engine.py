@@ -15,41 +15,119 @@ from .ai_client import AIClient
 logger = logging.getLogger(__name__)
 
 # 面试轮次配置
+# 每个轮次有独特的面试官角色定位和考察方向，确保轮次间有明显区分度
 ROUND_CONFIG = {
     "written": {
         "name": "笔试",
-        "desc": "选择题 + 判断题，考察知识广度",
-        "prompt_extra": """这是笔试环节，只出选择题（四选一）和判断题。
-- 选择题提供四个选项（A/B/C/D）
-- 判断题提供"A. 正确"/"B. 错误"两个选项
-- 必须标注正确答案 correct_answer
-- 题目要有明确的标准答案
-- 用户只需选择答案，不需要文字解释
-- 难度：前几题 easy，后面逐渐 medium""",
+        "desc": "理论基础与知识广度 · 客观题",
+        "prompt_extra": """## 【笔试规则 — 必须严格遵守】
+你是**笔试考官**，只考核候选人的**理论基础与知识广度**。所有题目必须是**客观题**，有明确的标准答案。
+
+### 严禁出以下题型
+- 简答题、论述题、填空题、代码编写题
+- 需要主观判断、系统设计、架构讨论的题目
+- 行为面试题、软技能题
+
+### 题型要求
+- **选择题**：必须提供 4 个选项（A/B/C/D），仅一个正确
+- **判断题**：必须提供 2 个选项（"A. 正确" / "B. 错误"）
+
+### 内容要求
+- 考察**核心理论基础**：数据结构、网络协议、数据库原理、编程语言特性、操作系统基础
+- 重视**原理理解**而非表面术语（如问"为什么"而非"是什么"）
+- 干扰项需有迷惑性但可明确判断对错
+- 结合岗位画像中的 required_skills 和 tech_stack 出题
+- 前几题 easy（基础概念），后面逐渐 medium（应用级理解）
+
+### 输出约束
+- 必须包含 correct_answer 和 explanation 字段
+- explanation 用 2-3 句话解释为什么正确选项对、错误选项错在哪
+- 只输出 JSON，不要额外文字""",
     },
     "tech_1": {
         "name": "技术一面",
-        "desc": "基础技术 + 项目经验深入",
-        "prompt_extra": """这是第一轮技术面试。
-- 重点考察候选人的项目经验和技术基础
-- 从简历项目入手，追问技术选型、难点和解决方案
-- 可出场景题但不要求完整系统设计""",
+        "desc": "工程实践 · 编码能力 · 项目深挖",
+        "prompt_extra": """## 【技术一面规则】
+你是团队中的**资深工程师（Staff Engineer）**，正在面试一位未来的同事。你的目标是**评估候选人的工程实践能力和代码质量意识**——能不能独立交付高质量、可维护的代码。
+
+### 考察重点（按优先级）
+1. **编码与工程实践**：代码质量、可维护性、错误处理、边界情况意识
+2. **项目经验深挖**：候选人在项目中具体做了什么、技术选型理由、遇到的坑和解决方案
+3. **调试与问题排查**：给出现场场景，看候选人如何分析和定位问题
+4. **API 设计与数据库**：接口设计是否合理、SQL 查询优化、数据建模
+
+### 面试风格
+- 以**场景题和追问**为主，贴近实际开发工作的日常
+- 可以出**代码审查题**（如给一段有问题的代码让候选人 review）
+- 可以出**调试题**（如"线上出现 XX 异常，你怎么排查？"）
+- **严禁出**大规模系统设计题（留给技术二面）、底层源码分析题
+- 难度递进：easy → medium，可到 medium-hard
+
+### 示例问题
+- "请 review 这段代码，指出潜在的问题和改进空间"
+- "这个接口在高并发下会有什么问题？你会怎么优化？"
+- "你的项目中用了 Redis 缓存，能具体说说缓存和数据库的一致性是怎么保证的吗？"
+- "如果这个 SQL 查询很慢，你的排查思路是什么？"
+
+只输出 JSON，不要额外文字""",
     },
     "tech_2": {
         "name": "技术二面",
-        "desc": "系统设计 + 架构能力 + 深度原理",
-        "prompt_extra": """这是第二轮技术深度面试。
-- 重点考察系统设计能力、架构思维
-- 出设计题（如"设计一个短链接系统""秒杀架构"）
-- 深挖技术原理（底层实现、性能优化、源码理解）""",
+        "desc": "架构设计 · 技术深度 · 权衡决策",
+        "prompt_extra": """## 【技术二面规则】
+你是团队**架构师 / 技术总监**，正在评估候选人的**架构视野和技术深度**。你要看的是候选人能否设计可扩展的系统、能否做出合理的技术权衡。
+
+### 考察重点（按优先级）
+1. **系统设计能力**：面对开放性问题，如何拆分功能、设计数据模型、定义接口
+2. **架构思维**：可扩展性、高可用、容错、性能规划、成本意识
+3. **技术深度**：底层原理理解、高级特性、异常场景处理、并发控制
+4. **技术选型与权衡**：多个方案时如何 Trade-off，能否清晰阐述取舍理由
+
+### 面试风格
+- 以**设计题**为主：如"设计一个实时评论系统""短链接服务""秒杀系统"
+- 当候选人提到某个组件时，追问其**底层实现原理**
+- **挑战候选人的设计决策**，看能否 defend 自己的方案
+- **严禁出**基础编码题、简单 API 设计题、行为面试题
+- 全程 medium 到 hard，第 1 题即可上中等难度
+
+### 考察维度
+- 系统设计：功能拆解 → 数据模型 → 接口契约 → 扩展与容错方案
+- 技术深度：源码级理解、性能调优、异常处理、分布式理论
+- 架构决策：一致性 vs 可用性、同步 vs 异步、SQL vs NoSQL、垂直 vs 水平扩展
+
+只输出 JSON，不要额外文字""",
     },
     "comprehensive": {
         "name": "综合面",
-        "desc": "综合素质 + 团队协作 + 职业规划",
-        "prompt_extra": """这是综合面试。
-- 考察沟通表达、团队协作、解决问题的思路
-- 可问行为面试题（STAR 法则）
-- 了解职业规划、技术视野、学习能力""",
+        "desc": "领导力 · 成长思维 · 跨团队协作",
+        "prompt_extra": """## 【综合面规则】
+你是**工程副总裁 / HR 负责人**，这是最后一轮面试。**不考察技术细节**，你要评估的是候选人的**综合素质与发展潜力**——这个人能不能在团队中发挥更大影响力。
+
+### 考察重点（按优先级）
+1. **领导力与影响力**：有没有推动过跨团队协作、技术决策的落地
+2. **冲突解决**：遇到分歧时如何处理、如何说服他人
+3. **成长思维**：如何学习新技术、如何从失败中复盘成长
+4. **沟通表达**：思路是否清晰、有层次、有逻辑
+5. **职业规划**：对未来的规划、技术视野、自我认知
+
+### 面试风格
+- 全程**行为面试题（STAR 法则）**，不出任何技术题
+  - Situation: 当时的情况是什么
+  - Task: 你的任务是什么
+  - Action: 你具体采取了什么行动
+  - Result: 结果如何
+- 多问"你以前具体怎么做的"，而不是"理论上怎么做"
+- 适当追问具体细节以验证真实性（公司、角色、量化结果）
+- 难度保持 medium，不需要 hard
+
+### 经典问题示例
+- "请分享一个你遇到过的最有挑战的项目，你是如何推动团队达成目标的？（STAR）"
+- "你和同事/产品经理产生严重意见分歧时，你是怎么处理的？"
+- "你过去一年最大的成长是什么？是什么促使了这种成长？"
+- "如果让你带领一个新人团队交付一个紧急项目，你会怎么做？"
+- "你对未来 3-5 年的职业发展有什么规划？为什么？"
+
+只输出 JSON，不要额外文字""",
     },
 }
 
@@ -159,10 +237,20 @@ class InterviewEngine:
         return self._parse_question(result, question_num, round_name, profile)
 
     async def evaluate_answer(self, question: str, answer: str, context: dict, round_name: str = "", question_data: dict = None) -> dict:
-        """评估用户的回答"""
+        """评估用户的回答，根据轮次使用差异化的评估标准"""
         if round_name == "written":
             return self._evaluate_written_direct(answer, question_data or {})
-        prompt = self._build_evaluation_prompt(question, answer, context)
+
+        # 根据轮次选择对应的评估提示词
+        if round_name == "tech_1":
+            prompt = self._build_evaluation_prompt_tech_1(question, answer, context)
+        elif round_name == "tech_2":
+            prompt = self._build_evaluation_prompt_tech_2(question, answer, context)
+        elif round_name == "comprehensive":
+            prompt = self._build_evaluation_prompt_comprehensive(question, answer, context)
+        else:
+            prompt = self._build_evaluation_prompt(question, answer, context)
+
         result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=1024)
         return self._parse_evaluation(result)
 
@@ -183,9 +271,9 @@ class InterviewEngine:
         result = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=512)
         return result.strip()
 
-    async def end_interview(self, history: list[dict], profile: dict) -> dict:
-        """结束面试，生成总结报告"""
-        prompt = self._build_report_prompt(history, profile)
+    async def end_interview(self, history: list[dict], profile: dict, round_name: str = "") -> dict:
+        """结束面试，生成总结报告（根据轮次调整评价侧重点）"""
+        prompt = self._build_report_prompt(history, profile, round_name)
         result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=2048)
         return self._parse_report(result, history)
 
@@ -200,17 +288,22 @@ class InterviewEngine:
         profile_str = json.dumps(profile, ensure_ascii=False, indent=2)
         return f"""你是一个专业的面试官，正在进行{rc['name']}（{rc['desc']}）。这是第 1 题。
 
-== 候选人简历 ==
-{resume[:3000]}
-
-== 目标岗位画像 ==
+== 目标岗位画像（核心考察依据）==
 {profile_str}
+
+== 候选人简历（参考项目背景）==
+{resume[:2000]}
 
 {rc['prompt_extra']}
 
 难度要求（第1题必须简单热身）：
 - 第1题：easy
-- 如果候选人简历上有项目，从项目中最熟悉的部分问起
+- 从岗位画像中的 required_skills 和 tech_stack 选择考察范围
+- 结合候选人简历中的项目经验找到切入点
+- 优先覆盖目标岗位的核心技能，而非简历中提到的所有技能
+
+岗位核心技能：{', '.join(profile.get('required_skills', []))}
+核心技术栈：{', '.join(profile.get('tech_stack', []))}
 
 只输出 JSON:
 {{"question": "题目", "type": "技术/行为/设计", "difficulty": "easy", "topic": "考察主题", "expected_points": ["要点1", "要点2"]}}"""
@@ -220,11 +313,11 @@ class InterviewEngine:
         profile_str = json.dumps(profile, ensure_ascii=False, indent=2)
         return f"""你是一个专业的笔试考官，正在出{rc['name']}。这是第 1 题。
 
-== 候选人简历 ==
-{resume[:3000]}
-
-== 目标岗位画像 ==
+== 目标岗位画像（核心考察依据）==
 {profile_str}
+
+== 候选人简历（参考项目背景）==
+{resume[:2000]}
 
 {rc['prompt_extra']}
 
@@ -263,11 +356,11 @@ class InterviewEngine:
 
         return f"""你是一个专业的面试官，正在进行{rc['name']}（{rc['desc']}）。这是第 {current_q} 题。
 
-== 候选人简历 ==
-{resume[:2000]}
-
-== 岗位画像 ==
+== 岗位画像（核心考察依据）==
 {json.dumps(profile, ensure_ascii=False, indent=2)[:1000]}
+
+== 候选人简历（参考项目背景）==
+{resume[:1500]}
 
 == 面试历史 ==
 {history_str}
@@ -283,7 +376,7 @@ class InterviewEngine:
 - 上一题得分 < 4 → 降低难度
 - 不要连续问同一个 topic
 
-注意：题目要结合候选人简历项目，不要脱离简历
+注意：以岗位画像中的 required_skills / tech_stack / common_interview_topics 为核心考察，简历只作参考背景
 
 只输出 JSON:
 {{"question": "题目", "type": "技术/行为/设计", "difficulty": "easy/medium/hard", "topic": "考察主题", "expected_points": ["要点1", "要点2"], "reason": "为什么出这题"}}"""
@@ -312,11 +405,11 @@ class InterviewEngine:
 
         return f"""你是一个专业的笔试考官，正在出{rc['name']}。这是第 {current_q} 题。
 
-== 候选人简历 ==
-{resume[:2000]}
-
-== 岗位画像 ==
+== 岗位画像（核心考察依据）==
 {json.dumps(profile, ensure_ascii=False, indent=2)[:1000]}
+
+== 候选人简历（参考项目背景）==
+{resume[:1500]}
 
 == 笔试历史 ==
 {history_str}
@@ -330,7 +423,7 @@ class InterviewEngine:
 - 上一题错误 → 换知识点，保持或降低难度
 - 不要连续考同一个 topic
 
-注意：题目要结合候选人简历中的技能栈
+注意：以岗位画像中的 required_skills 和 tech_stack 为核心考察范围
 
 绝对不要出简答题、论述题、填空题或任何需要用户手动输入文字的题目！
 每道题必须包含 options 字段，选择题必须有 4 个选项（A/B/C/D），判断题必须有 2 个选项（A. 正确 / B. 错误）。
@@ -376,13 +469,116 @@ class InterviewEngine:
 只输出 JSON：
 {{"technical_score": 10, "technical_comment": "评价", "logic_score": 10, "logic_comment": "评价", "depth_score": 10, "depth_comment": "评价", "communication_score": 10, "communication_comment": "评价", "overall_score": 10, "summary": "综合评价", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
 
-    def _build_report_prompt(self, history: list[dict], profile: dict) -> str:
+    def _build_evaluation_prompt_tech_1(self, question: str, answer: str, context: dict) -> str:
+        """技术一面评估：侧重工程实践、代码质量、调试能力"""
+        hint_note = ""
+        if context.get("hint_used"):
+            hint_note = "\n注意：候选人在回答此题前使用了提示，说明独立思考能力不足，各项评分应适当降低。"
+        return f"""你是一名资深技术面试官（高级工程师），请从**工程实践能力**角度评估候选人的回答。
+
+## 评估维度权重（按重要性排序）
+1. **技术能力（权重 40%）** — 技术方案是否合理、工程判断是否准确、是否考虑到边界情况和错误处理
+2. **逻辑思维（权重 30%）** — 分析问题的思路是否清晰、排查是否有条理
+3. **深度（权重 15%）** — 是否主动考虑了性能、安全、可维护性等非功能需求
+4. **沟通表达（权重 15%）** — 能否清晰地解释技术方案
+
+面试题: {question}
+
+回答: {answer[:2000]}
+
+岗位信息: {json.dumps(context.get("profile", {}), ensure_ascii=False)[:500]}
+
+{hint_note}
+评分标准（10 分制，请充分利用 1-10 全范围）：
+- 10 分：完美回答，代码级思考超出预期
+- 8-9 分：很好的回答，工程意识强
+- 6-7 分：合格回答，有基本工程判断
+- 4-5 分：基本回答，有明显不足
+- 1-3 分：较差回答
+
+只输出 JSON：
+{{"technical_score": 10, "technical_comment": "评价", "logic_score": 10, "logic_comment": "评价", "depth_score": 10, "depth_comment": "评价", "communication_score": 10, "communication_comment": "评价", "overall_score": 10, "summary": "综合评价（突出工程实践能力表现）", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
+
+    def _build_evaluation_prompt_tech_2(self, question: str, answer: str, context: dict) -> str:
+        """技术二面评估：侧重架构设计、技术深度、权衡分析"""
+        hint_note = ""
+        if context.get("hint_used"):
+            hint_note = "\n注意：候选人在回答此题前使用了提示，说明独立思考能力不足，各项评分应适当降低。"
+        return f"""你是一名资深技术面试官（架构师），请从**架构设计与技术深度**角度评估候选人的回答。
+
+## 评估维度权重（按重要性排序）
+1. **深度（权重 40%）** — 对底层原理的理解是否到位、是否考虑了异常场景和边界情况
+2. **技术能力（权重 30%）** — 方案是否合理、技术选型是否恰当、是否做了必要的取舍分析
+3. **逻辑思维（权重 20%）** — 系统拆解是否有条理、数据模型是否合理、接口设计是否清晰
+4. **沟通表达（权重 10%）** — 能否清晰地阐述设计决策理由
+
+面试题: {question}
+
+回答: {answer[:2000]}
+
+岗位信息: {json.dumps(context.get("profile", {}), ensure_ascii=False)[:500]}
+
+{hint_note}
+评分标准（10 分制，请充分利用 1-10 全范围）：
+- 10 分：完美回答，架构视野开阔，深度和广度兼备
+- 8-9 分：很好的回答，有清晰的架构思维
+- 6-7 分：合格回答，能完成基本设计但缺乏深度
+- 4-5 分：基本回答，设计上有明显漏洞
+- 1-3 分：较差回答
+
+只输出 JSON：
+{{"technical_score": 10, "technical_comment": "评价", "logic_score": 10, "logic_comment": "评价", "depth_score": 10, "depth_comment": "评价（重点分析架构和技术深度表现）", "communication_score": 10, "communication_comment": "评价", "overall_score": 10, "summary": "综合评价（突出架构设计能力）", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
+
+    def _build_evaluation_prompt_comprehensive(self, question: str, answer: str, context: dict) -> str:
+        """综合面评估：侧重软素质、领导力、成长思维"""
+        hint_note = ""
+        if context.get("hint_used"):
+            hint_note = "\n注意：候选人在回答此题前使用了提示，说明独立思考能力不足，各项评分应适当降低。"
+        return f"""你是一名资深 HR 负责人/技术 VP，请从**综合素质与发展潜力**角度评估候选人的回答。
+
+## 评估维度权重（按重要性排序）
+1. **沟通表达（权重 40%）** — 是否使用 STAR 结构、表达是否清晰有条理、是否具体而非空泛
+2. **逻辑思维（权重 25%）** — 故事是否有因果链条、反思是否深入、归因是否合理
+3. **深度（权重 20%）** — 自我认知是否清晰、是否能从经历中提炼可迁移的经验
+4. **技术能力（权重 15%）** — 对技术角色的理解、行业认知（此项为软性参考，不要求技术深度）
+
+面试题: {question}
+
+回答: {answer[:2000]}
+
+岗位信息: {json.dumps(context.get("profile", {}), ensure_ascii=False)[:500]}
+
+{hint_note}
+评分标准（10 分制，请充分利用 1-10 全范围）：
+- 10 分：完美的 STAR 表达，展现优秀的领导力和成长思维
+- 8-9 分：很好的回答，有具体案例和深入反思
+- 6-7 分：合格回答，能说清楚经历但缺乏深度反思
+- 4-5 分：基本回答，故事不够具体或逻辑不够清晰
+- 1-3 分：较差回答
+
+只输出 JSON：
+{{"technical_score": 10, "technical_comment": "评价（软性参考）", "logic_score": 10, "logic_comment": "评价", "depth_score": 10, "depth_comment": "评价（重点分析自我认知和反思深度）", "communication_score": 10, "communication_comment": "评价（重点分析 STAR 结构和表达）", "overall_score": 10, "summary": "综合评价（突出综合素质和发展潜力）", "strengths": ["优点"], "improvements": ["建议"], "reference_answer": "参考回答"}}"""
+
+    def _build_report_prompt(self, history: list[dict], profile: dict, round_name: str = "") -> str:
         history_str = ""
         for i, h in enumerate(history, 1):
             score = h.get("score", {})
             history_str += f"\nQ{i}: {h['q']}\nA{i}: {h['a'][:300]}\n评分: {json.dumps(score, ensure_ascii=False)}\n"
 
+        # 根据轮次生成差异化的报告框架
+        rc = self._get_round_config(round_name)
+        round_focus_map = {
+            "tech_1": "本次面试侧重考察**工程实践能力**（代码质量、调试能力、工程判断）。请重点评价候选人的编码素养和独立交付能力。",
+            "tech_2": "本次面试侧重考察**架构设计与技术深度**（系统设计、底层原理、技术权衡）。请重点评价候选人的架构视野和深度思考能力。",
+            "comprehensive": "本次面试侧重考察**综合素质与发展潜力**（领导力、沟通协作、成长思维、职业规划）。请重点评价候选人的软素质和潜力。",
+        }
+        round_focus = round_focus_map.get(round_name, "")
+
         return f"""请根据以下完整的面试记录，生成一份面试总结报告。
+
+== 轮次信息 ==
+面试轮次：{rc['name']}（{rc['desc']}）
+{round_focus}
 
 == 岗位画像 ==
 {json.dumps(profile, ensure_ascii=False)[:500]}
@@ -397,10 +593,10 @@ class InterviewEngine:
   "score_breakdown": {{"technical": 0, "logic": 0, "depth": 0, "communication": 0}},
   "strengths": ["整体优势1", "优势2"],
   "weaknesses": ["待提升1", "待提升2"],
-  "skill_summary": "技能掌握情况总结",
+  "skill_summary": "技能掌握情况总结（结合轮次考察重点给出针对性评价）",
   "preparation_advice": ["复习建议1", "建议2", "建议3"],
   "recommended_positions": ["适合的岗位1", "岗位2"],
-  "final_verdict": "最终评价（2-3句话）"
+  "final_verdict": "最终评价（2-3句话，结合该轮次的考察方向）"
 }}"""
 
     # ==================== 解析器 ====================
