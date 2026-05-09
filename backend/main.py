@@ -1,6 +1,9 @@
 """MockMate 主服务"""
+import asyncio
 import json
 import logging
+import sys
+import time
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -19,11 +22,12 @@ import io
 from pypdf import PdfReader
 from docx import Document
 
-from .config import HOST, PORT, DATA_DIR
+from .config import HOST, PORT, DATA_DIR, ALLOW_SHARED_API_KEY
 from .ai_client import AIClient
 from .web_research import WebResearch
 from .interview_engine import InterviewEngine
 from .tts import TTSEngine
+from .finetune import get_collector
 from .database import db
 from .mail import create_mailer, send_verification_email
 from .auth import (
@@ -51,6 +55,26 @@ logger = logging.getLogger("mockmate")
 ai = AIClient()
 mailer = None  # 在 lifespan 中初始化
 
+# 笔试后台预生成
+_written_bg_tasks: dict[str, asyncio.Task] = {}   # 运行中的 task
+_written_bg_results: dict[str, list[dict]] = {}   # 已完成的结果
+
+
+async def _background_written_batch(
+    session_id: str, total: int, resume: str, profile: dict,
+    used_questions: set,
+):
+    """后台并发生成下一批笔试题，完成后存入结果池"""
+    try:
+        engine = InterviewEngine(ai)
+        qs = await engine.pre_generate_written(total, resume, profile, used_questions)
+        _written_bg_results[session_id] = qs
+    except Exception as e:
+        logger.error(f"后台生成笔试题失败 [{session_id}]: {e}")
+        _written_bg_results[session_id] = []
+    finally:
+        _written_bg_tasks.pop(session_id, None)
+
 
 # -------- API Key 请求头提取 --------
 
@@ -60,13 +84,18 @@ def get_user_ai(
     x_ai_provider: Optional[str] = Header(None, alias="X-Ai-Provider"),
 ) -> AIClient:
     """从请求头提取 API Key，创建 per-request 的 AIClient。
-    如果没有提供任何 Key，回退到全局配置（兼容单用户模式）。
+    如果未提供 Key，根据 ALLOW_SHARED_API_KEY 配置决定行为：
+    - false（默认）：抛出 401，要求用户配置自己的 Key
+    - true：回退到全局配置（记警告日志）
     """
     if x_mimo_api_key or x_deepseek_api_key:
         return ai.with_keys(x_mimo_api_key, x_deepseek_api_key, x_ai_provider)
     if x_ai_provider:
         # 只切了提供商，没换 key
         return ai.with_keys(provider=x_ai_provider)
+    if not ALLOW_SHARED_API_KEY:
+        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key 或 X-Deepseek-Api-Key 请求头）")
+    logger.warning("未提供 API Key 的请求正在使用全局配置的 Key（如需关闭请设置 ALLOW_SHARED_API_KEY=false）")
     return ai
 
 
@@ -100,6 +129,19 @@ class ResumeText(BaseModel):
 class ResumeScoreRequest(BaseModel):
     resume: str
     profile: dict
+
+class FeedbackRequest(BaseModel):
+    """点赞/点踩反馈"""
+    record_type: str = "eval"    # "eval" | "score"
+    record_id: str               # collector 返回的 ID
+    rating: str                  # "up" | "down"
+    corrections: Optional[dict] = None  # 点踩后的修正值
+
+class FeedbackDataRequest(BaseModel):
+    """获取训练数据列表"""
+    record_type: Optional[str] = None
+    quality: Optional[str] = None
+    source: str = "raw"
 
 class StartInterview(BaseModel):
     resume: str
@@ -364,6 +406,9 @@ async def score_resume(req: ResumeScoreRequest, user_ai: AIClient = Depends(get_
     if not req.profile:
         raise HTTPException(400, "请先生成岗位画像")
 
+    provider = user_ai.provider
+    logger.info(f"开始简历评分，provider={provider}, mimo_ready={user_ai.mimo.ready}, deepseek_ready={user_ai.deepseek.ready}")
+
     profile_str = json.dumps(req.profile, ensure_ascii=False, indent=2)
     prompt = f"""你是一个资深的招聘专家（HR + 技术面试官）。请根据目标岗位画像，对候选人简历进行评分和评估。
 
@@ -391,12 +436,28 @@ async def score_resume(req: ResumeScoreRequest, user_ai: AIClient = Depends(get_
 - 0-49：匹配度低，建议大幅修改简历后再投递
 
 请确保分数客观公正，严格根据简历内容与岗位画像的匹配程度打分。"""
-    result = await user_ai.chat([{"role": "user", "content": prompt}], max_tokens=2048)
+    # 调用 AI，失败时重试一次（记录耗时和 token）
+    t0 = time.monotonic()
+    result = await user_ai.reason([{"role": "user", "content": prompt}], max_tokens=2048)
+    latency_ms = round((time.monotonic() - t0) * 1000, 1)
     if not result:
+        logger.warning(f"简历评分 AI 首次调用返回空，2 秒后重试...")
+        await asyncio.sleep(2)
+        t0 = time.monotonic()
+        result = await user_ai.reason([{"role": "user", "content": prompt}], max_tokens=2048)
+        latency_ms = round((time.monotonic() - t0) * 1000, 1)
+    if not result:
+        logger.error(f"简历评分 AI 返回空（provider={provider}，mimo={user_ai.mimo.ready} deepseek={user_ai.deepseek.ready}）")
         raise HTTPException(503, "AI 不可用，请稍后重试")
+
+    usage = user_ai.last_usage
+    token_count = usage.get("total_tokens") if usage else None
+    collector = get_collector()
     try:
         data = json.loads(result)
         data["score"] = max(0, min(100, int(data.get("score", 0))))
+        record_id = collector.save_score(req.resume, req.profile, data, latency_ms, token_count)
+        data["_record_id"] = record_id
         return data
     except (json.JSONDecodeError, ValueError):
         import re
@@ -405,10 +466,12 @@ async def score_resume(req: ResumeScoreRequest, user_ai: AIClient = Depends(get_
             try:
                 data = json.loads(match.group())
                 data["score"] = max(0, min(100, int(data.get("score", 0))))
+                record_id = collector.save_score(req.resume, req.profile, data, latency_ms, token_count)
+                data["_record_id"] = record_id
                 return data
             except (json.JSONDecodeError, ValueError):
                 pass
-        logger.error(f"简历评分解析失败: {result[:300]}")
+        logger.error(f"简历评分解析失败: {result[:500]}")
         raise HTTPException(500, "评分解析失败，请重试")
 
 
@@ -500,6 +563,35 @@ async def start_interview(req: StartInterview, user_ai: AIClient = Depends(get_u
         }
 
     round_name = req.round
+
+    # 笔试：先出 5 题秒开，答题时后台继续生成
+    if round_name == "written":
+        questions_initial = await engine.pre_generate_written(5, req.resume, profile)
+        question = questions_initial[0]
+        # 不再后台预生成，答题时池中余量不足会自动触发下一批
+        session = {
+            "id": session_id,
+            "position": req.position,
+            "company": req.company,
+            "resume": req.resume,
+            "profile": profile,
+            "round": round_name,
+            "history": [],
+            "current_question": question,
+            "current_index": 0,
+            "written_questions": questions_initial,
+            "written_total": 20,
+            "created_at": datetime.now().isoformat(),
+        }
+        await db.save_session(session_id, session, user_id=uid)
+        return {
+            "session_id": session_id,
+            "question": question,
+            "question_index": 0,
+            "round": round_name,
+            "audio_url": None,
+        }
+
     question = await engine.generate_first_question(req.resume, profile, round_name)
     audio_path = await tts.synthesize(question["question"], session_id, 0)
 
@@ -522,7 +614,7 @@ async def start_interview(req: StartInterview, user_ai: AIClient = Depends(get_u
         "question": question,
         "question_index": 0,
         "round": round_name,
-        "audio_url": f"/api/audio/{session_id}_q000.mp3" if audio_path else None,
+        "audio_url": f"/api/audio/{session_id}_q000.wav" if audio_path else None,
     }
 
 @app.post("/api/interview/answer")
@@ -569,6 +661,67 @@ async def submit_answer(req: AnswerSubmission, user_ai: AIClient = Depends(get_u
             "audio_url": None,
         }
 
+    # 笔试预生成模式：从池取题 + 后台补充
+    written_qs = session.get("written_questions", [])
+    written_total = session.get("written_total", 0)
+    if round_name == "written" and written_qs:
+        next_index = session["current_index"] + 1
+
+        # 合并后台已完成的生成结果
+        bg_qs = _written_bg_results.pop(req.session_id, None)
+        if bg_qs:
+            written_qs.extend(bg_qs)
+            session["written_questions"] = written_qs
+
+        # 从池取下一题
+        if next_index < len(written_qs):
+            next_q = written_qs[next_index]
+        elif next_index < written_total:
+            # 等后台任务（最多 5s），超时则 on-the-fly 生成 1 题
+            task = _written_bg_tasks.get(req.session_id)
+            if task and not task.done():
+                try:
+                    await asyncio.wait_for(task, timeout=5)
+                except asyncio.TimeoutError:
+                    pass
+            bg_qs = _written_bg_results.pop(req.session_id, []) or []
+            if bg_qs:
+                written_qs.extend(bg_qs)
+                session["written_questions"] = written_qs
+            if next_index < len(written_qs):
+                next_q = written_qs[next_index]
+            else:
+                # 后台没赶上，即时生成 1 题
+                next_q = await engine.generate_next_question(
+                    session["history"], session.get("resume", ""), session.get("profile", {}),
+                    round_name="written",
+                )
+        else:
+            next_q = None
+
+        # 池中余量不足时触发下一批后台生成
+        remaining = len(written_qs) - next_index
+        if remaining <= 4 and len(written_qs) < written_total \
+           and req.session_id not in _written_bg_tasks:
+            batch_count = min(5, written_total - len(written_qs))
+            used = {h["q"] for h in session.get("history", [])} | {q["question"] for q in written_qs}
+            task = asyncio.create_task(
+                _background_written_batch(req.session_id, batch_count,
+                                          session.get("resume", ""), session.get("profile", {}),
+                                          used)
+            )
+            _written_bg_tasks[req.session_id] = task
+
+        session["current_question"] = next_q
+        session["current_index"] = next_index
+        await db.save_session(req.session_id, session, user_id=uid)
+        return {
+            "evaluation": evaluation,
+            "next_question": next_q,
+            "next_index": next_index,
+            "audio_url": None,
+        }
+
     next_index = session["current_index"] + 1
     next_q = await engine.generate_next_question(
         session["history"], session.get("resume", ""), session.get("profile", {}),
@@ -584,7 +737,7 @@ async def submit_answer(req: AnswerSubmission, user_ai: AIClient = Depends(get_u
         "evaluation": evaluation,
         "next_question": next_q,
         "next_index": next_index,
-        "audio_url": f"/api/audio/{req.session_id}_q{next_index:03d}.mp3" if audio_path else None,
+        "audio_url": f"/api/audio/{req.session_id}_q{next_index:03d}.wav" if audio_path else None,
     }
 
 @app.post("/api/interview/end")
@@ -679,6 +832,10 @@ async def get_session(session_id: str):
     session = await db.load_session(session_id)
     if not session:
         raise HTTPException(404, "会话不存在")
+    # 剥离内部字段避免泄漏到前端
+    cq = session.get("current_question")
+    if isinstance(cq, dict):
+        cq = {k: v for k, v in cq.items() if not k.startswith("__")}
     return {
         "id": session["id"],
         "position": session.get("position"),
@@ -687,7 +844,7 @@ async def get_session(session_id: str):
         "round": session.get("round", ""),
         "history": session.get("history", []),
         "report": session.get("report"),
-        "current_question": session.get("current_question"),
+        "current_question": cq,
         "current_index": session.get("current_index", 0),
         "custom_questions": session.get("custom_questions", []),
     }
@@ -700,7 +857,7 @@ async def get_audio(filename: str):
     audio_path = DATA_DIR / "audios" / filename
     if not audio_path.exists():
         raise HTTPException(404, "音频不存在")
-    return FileResponse(str(audio_path), media_type="audio/mpeg", filename=filename)
+    return FileResponse(str(audio_path), media_type="audio/wav", filename=filename)
 
 
 # ==================== 历史记录 ====================
@@ -716,6 +873,31 @@ async def delete_history(session_id: str, current_user: dict = Depends(get_curre
     if await db.delete_session(session_id, user_id=current_user["id"]):
         return {"message": "已删除"}
     raise HTTPException(404, "记录不存在")
+
+
+# ==================== 微调数据反馈 ====================
+
+@app.post("/api/feedback/submit")
+async def submit_feedback(req: FeedbackRequest):
+    """提交点赞/点踩反馈"""
+    collector = get_collector()
+    ok = collector.submit_feedback(req.record_type, req.record_id, req.rating, req.corrections)
+    if not ok:
+        raise HTTPException(404, "反馈目标不存在")
+    return {"message": "反馈已记录"}
+
+@app.post("/api/training/data")
+async def list_training_data(req: FeedbackDataRequest):
+    """获取训练数据列表"""
+    collector = get_collector()
+    records = collector.list_records(req.record_type, req.quality, req.source)
+    return {"records": records}
+
+@app.get("/api/training/stats")
+async def training_stats():
+    """获取训练数据统计"""
+    collector = get_collector()
+    return collector.get_stats()
 
 
 # ==================== 前端 ====================
@@ -742,6 +924,17 @@ def _get_lan_ip() -> str:
 
 
 def main():
+    # Windows asyncio 补丁：压制 ProactorEventLoop 在客户端强制断开连接时的 ConnectionResetError 噪音
+    if sys.platform == 'win32':
+        from asyncio import proactor_events
+        _orig_ccl = proactor_events._ProactorBasePipeTransport._call_connection_lost
+        def _patched_ccl(self, exc):
+            try:
+                _orig_ccl(self, exc)
+            except ConnectionResetError:
+                pass
+        proactor_events._ProactorBasePipeTransport._call_connection_lost = _patched_ccl
+
     import uvicorn
     lan_ip = _get_lan_ip()
     print(f"""

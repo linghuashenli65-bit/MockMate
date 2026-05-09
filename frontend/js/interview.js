@@ -104,6 +104,11 @@ window.MockMate = window.MockMate || {};
         (weaknessesHtml ? '<div class="score-section-title" style="color:var(--yellow)">不足</div><ul class="score-detail-list">' + weaknessesHtml + '</ul>' : '') +
         (suggestionsHtml ? '<div class="score-section-title" style="color:var(--accent2)">优化建议</div><ul class="score-detail-list">' + suggestionsHtml + '</ul>' : '') +
       '</div>';
+
+    // 点赞/点踩按钮
+    if (result._record_id) {
+      M.Feedback.renderButtons('score', result._record_id, document.getElementById('scoreResult'));
+    }
   };
 
   // ---- 计时器 ----
@@ -259,11 +264,27 @@ window.MockMate = window.MockMate || {};
       return;
     }
 
+    const selectedRound = document.querySelector('input[name="round"]:checked')?.value || 'tech_1';
+    const isWritten = selectedRound === 'written';
     const btn = document.getElementById('startInterviewBtn');
-    M.setBtnLoading(btn, true, '正在准备面试...');
+
+    // 笔试：显示全屏加载动画
+    if (isWritten) {
+      M.switchTab('interview');
+      const area = document.getElementById('interviewArea');
+      area.innerHTML =
+        '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">' +
+          '<div class="spinner" style="width:48px;height:48px;border-width:5px"></div>' +
+          '<div style="margin-top:20px;font-size:16px;font-weight:600;color:var(--text)">正在生成笔试题...</div>' +
+          '<div style="margin-top:8px;font-size:13px;color:var(--text2)">AI 正在并行出题，请稍候</div>' +
+          '<div style="margin-top:4px;font-size:12px;color:var(--text3)">后续题目将在答题时后台自动生成，无需等待</div>' +
+        '</div>';
+      document.getElementById('roundLabel').textContent = M.ROUND_NAMES.written;
+    } else {
+      M.setBtnLoading(btn, true, '正在准备面试...');
+    }
 
     try {
-      const selectedRound = document.querySelector('input[name="round"]:checked')?.value || 'tech_1';
       const useCustom = document.getElementById('useCustomQuestions')?.checked;
       const customIds = useCustom ? M.state._selectedCustomIds || [] : [];
 
@@ -289,14 +310,14 @@ window.MockMate = window.MockMate || {};
         M.ROUND_NAMES[result.round] || result.round;
 
       // 切换到面试 Tab
-      M.switchTab('interview');
+      if (!isWritten) M.switchTab('interview');
 
       I.showQuestion(result.question, 0, result.audio_url);
       M.toast('面试已开始');
     } catch(e) {
+      if (!isWritten) M.setBtnLoading(btn, false, '开始模拟面试');
       M.toast('启动面试失败: ' + e.message);
     }
-    M.setBtnLoading(btn, false, '开始模拟面试');
   };
 
   // ---- 显示题目 ----
@@ -326,7 +347,7 @@ window.MockMate = window.MockMate || {};
     let audioHtml = '';
     if (audioUrl) {
       audioHtml = '<div style="margin-top:12px"><audio controls style="width:100%;height:36px"><source src="' +
-        audioUrl + '" type="audio/mpeg"></audio></div>';
+        audioUrl + '" type="audio/wav"></audio></div>';
     }
 
     // 倒计时显示
@@ -393,7 +414,7 @@ window.MockMate = window.MockMate || {};
       countdownHtml +
       '<div class="question-box">' +
         '<div class="q-label">' + (isWritten ? '笔试题目' : '面试官提问') + '</div>' +
-        '<div class="q-text">' + M.esc(question.question) + '</div>' +
+        '<div class="q-text markdown-body">' + M.md(question.question) + '</div>' +
         meta +
         audioHtml +
       '</div>' +
@@ -434,7 +455,7 @@ window.MockMate = window.MockMate || {};
             question_index: M.state.currentQuestionIndex,
           });
           const hintEl = document.getElementById('hintResult');
-          hintEl.textContent = result.hint;
+          hintEl.innerHTML = M.md(result.hint);
           hintEl.style.display = 'block';
           this.textContent = '💡 已查看提示';
           M.state._hintUsed = true;
@@ -503,6 +524,8 @@ window.MockMate = window.MockMate || {};
       // 渲染评估结果
       const evalBox = document.getElementById('evaluationResult');
       const ev = result.evaluation;
+      M.state._lastEvaluation = ev;
+      const evalRecordId = ev._record_id;
 
       if (M.state.isWrittenRound) {
         const isCorrect = ev.correct;
@@ -514,8 +537,8 @@ window.MockMate = window.MockMate || {};
             '<div style="font-size:24px;color:' + color + ';margin-bottom:8px">' +
               icon + ' <span style="font-size:16px;font-weight:600">' + label + '</span>' +
             '</div>' +
-            '<div style="font-size:13px;color:var(--text2);margin-bottom:6px"><strong>正确答案：</strong>' + M.esc(ev.correct_answer || '') + '</div>' +
-            '<div style="font-size:13px;line-height:1.6;padding:10px;background:var(--surface);border-radius:6px"><strong>解析：</strong><br>' + M.esc(ev.explanation || '') + '</div>' +
+            '<div style="font-size:13px;color:var(--text2);margin-bottom:6px"><strong>正确答案：</strong>' + M.md(ev.correct_answer || '') + '</div>' +
+            '<div style="font-size:13px;line-height:1.6;padding:10px;background:var(--surface);border-radius:6px" class="markdown-body"><strong>解析：</strong><br>' + M.md(ev.explanation || '') + '</div>' +
           '</div>' +
           '<div style="margin-top:12px;display:flex;gap:10px">' +
             '<button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>' +
@@ -540,11 +563,11 @@ window.MockMate = window.MockMate || {};
               buildScoreTag('深度', ev.depth_score) +
               buildScoreTag('表达', ev.communication_score) +
             '</div>' +
-            '<div style="font-size:13px;line-height:1.6">' +
-              '<p>' + M.esc(ev.summary || '') + '</p>' +
+            '<div style="font-size:13px;line-height:1.6" class="markdown-body">' +
+              M.md(ev.summary || '') +
               (ev.strengths && ev.strengths.length ? '<div style="margin-top:8px"><strong>优点：</strong> ' + ev.strengths.map(M.esc).join('、') + '</div>' : '') +
               (ev.improvements && ev.improvements.length ? '<div style="margin-top:4px"><strong>改进建议：</strong> ' + ev.improvements.map(M.esc).join('、') + '</div>' : '') +
-              (ev.reference_answer ? '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px"><strong>参考回答：</strong><br>' + M.esc(ev.reference_answer) + '</div>' : '') +
+              (ev.reference_answer ? '<div style="margin-top:8px;padding:8px;background:var(--surface);border-radius:6px" class="markdown-body"><strong>参考回答：</strong><br>' + M.md(ev.reference_answer) + '</div>' : '') +
             '</div>' +
             '<div style="margin-top:12px;display:flex;gap:10px">' +
               '<button class="btn btn-primary" id="nextQuestionBtn" style="flex:1">下一题</button>' +
@@ -552,6 +575,11 @@ window.MockMate = window.MockMate || {};
               '<button class="btn btn-danger btn-sm" id="endFromFeedbackBtn">结束面试</button>' +
             '</div>' +
           '</div>';
+      }
+
+      // 点赞/点踩按钮
+      if (evalRecordId) {
+        M.Feedback.renderButtons('eval', evalRecordId, evalBox);
       }
 
       document.getElementById('nextQuestionBtn').addEventListener('click', () => {
@@ -759,18 +787,18 @@ window.MockMate = window.MockMate || {};
       buildScoreTag('表达', sc.communication) +
       '</div>';
 
-    if (r.final_verdict) html += '<p style="font-size:14px;line-height:1.6;margin-bottom:12px">' + M.esc(r.final_verdict) + '</p>';
-    if (r.skill_summary) html += '<p style="font-size:13px;color:var(--text2);margin-bottom:12px">' + M.esc(r.skill_summary) + '</p>';
+    if (r.final_verdict) html += '<div class="markdown-body" style="font-size:14px;line-height:1.6;margin-bottom:12px">' + M.md(r.final_verdict) + '</div>';
+    if (r.skill_summary) html += '<div class="markdown-body" style="font-size:13px;color:var(--text2);margin-bottom:12px">' + M.md(r.skill_summary) + '</div>';
 
     if (r.strengths && r.strengths.length) {
-      html += '<div style="margin-bottom:8px"><strong style="color:var(--green)">优势</strong><br><span style="font-size:13px">' + r.strengths.map(M.esc).join('；') + '</span></div>';
+      html += '<div style="margin-bottom:8px"><strong style="color:var(--green)">优势</strong><br><span style="font-size:13px" class="markdown-body">' + r.strengths.map(function(s){ return M.md(s); }).join('；') + '</span></div>';
     }
     if (r.weaknesses && r.weaknesses.length) {
-      html += '<div style="margin-bottom:8px"><strong style="color:var(--yellow)">待提升</strong><br><span style="font-size:13px">' + r.weaknesses.map(M.esc).join('；') + '</span></div>';
+      html += '<div style="margin-bottom:8px"><strong style="color:var(--yellow)">待提升</strong><br><span style="font-size:13px" class="markdown-body">' + r.weaknesses.map(function(w){ return M.md(w); }).join('；') + '</span></div>';
     }
     if (r.preparation_advice && r.preparation_advice.length) {
       html += '<div style="margin-bottom:12px"><strong>复习建议</strong><br><ul style="font-size:13px;padding-left:20px;margin-top:4px">';
-      r.preparation_advice.forEach(a => { html += '<li>' + M.esc(a) + '</li>'; });
+      r.preparation_advice.forEach(a => { html += '<li class="markdown-body">' + M.md(a) + '</li>'; });
       html += '</ul></div>';
     }
     if (r.recommended_positions && r.recommended_positions.length) {
@@ -784,8 +812,8 @@ window.MockMate = window.MockMate || {};
       history.forEach((h, i) => {
         html += '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px">' +
           '<div style="font-size:12px;color:var(--accent2);margin-bottom:4px">第 ' + (i+1) + ' 题 (' + (h.type || '') + ')</div>' +
-          '<div style="font-size:13px;margin-bottom:6px"><strong>问：</strong>' + M.esc(h.q) + '</div>' +
-          '<div style="font-size:13px;color:var(--text2);margin-bottom:4px"><strong>答：</strong>' + M.esc(h.a || '') + '</div>' +
+          '<div style="font-size:13px;margin-bottom:6px" class="markdown-body"><strong>问：</strong>' + M.md(h.q) + '</div>' +
+          '<div style="font-size:13px;color:var(--text2);margin-bottom:4px" class="markdown-body"><strong>答：</strong>' + M.md(h.a || '') + '</div>' +
           '<span class="score-tag" style="display:inline-block">得分 ' + (h.score?.overall_score || 0) + '</span>' +
           '</div>';
       });
@@ -877,6 +905,10 @@ window.MockMate = window.MockMate || {};
     M.state.totalQuestions = 0;
     M.state.suspendedQuestions = [];
     M.ls.remove('active_session');
+
+    // 恢复开始面试按钮
+    const btn = document.getElementById('startInterviewBtn');
+    if (btn) M.setBtnLoading(btn, false);
   };
 
   // ---- 导出 ----

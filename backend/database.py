@@ -159,6 +159,20 @@ class Database:
         """保存或更新面试会话"""
         if not self.available:
             return await self._save_session_fallback(session_id, data)
+
+        # 将 written_questions/written_total 嵌入 current_question JSON 字段（避免改表结构）
+        cq = data.get("current_question", {})
+        written_qs = data.get("written_questions", [])
+        written_total = data.get("written_total", 0)
+        if isinstance(cq, dict):
+            extra = {}
+            if written_qs:
+                extra["__written_questions__"] = written_qs
+            if written_total:
+                extra["__written_total__"] = written_total
+            if extra:
+                cq = {**cq, **extra}
+
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
@@ -181,7 +195,7 @@ class Database:
                     json.dumps(data.get("profile", {}), ensure_ascii=False),
                     json.dumps(data.get("history", []), ensure_ascii=False),
                     json.dumps(data.get("report", {}), ensure_ascii=False),
-                    json.dumps(data.get("current_question", {}), ensure_ascii=False),
+                    json.dumps(cq, ensure_ascii=False),
                     data.get("current_index", 0),
                     data.get("created_at", datetime.now().isoformat()),
                     user_id,
@@ -250,6 +264,12 @@ class Database:
     def _row_to_session(self, row: tuple, columns: list) -> dict:
         """将数据库行转换为会话 dict"""
         data = dict(zip(columns, row))
+        current_question = json.loads(data["current_question"]) if data.get("current_question") else {}
+        written_questions = []
+        written_total = 0
+        if isinstance(current_question, dict):
+            written_questions = current_question.pop("__written_questions__", [])
+            written_total = current_question.pop("__written_total__", 0)
         return {
             "id": data["id"],
             "position": data.get("position", ""),
@@ -259,10 +279,12 @@ class Database:
             "profile": json.loads(data["profile"]) if data.get("profile") else {},
             "history": json.loads(data["history"]) if data.get("history") else [],
             "report": json.loads(data["report"]) if data.get("report") else {},
-            "current_question": json.loads(data["current_question"]) if data.get("current_question") else {},
+            "current_question": current_question,
             "current_index": data.get("current_index", 0),
             "user_id": data.get("user_id"),
             "created_at": data["created_at"].isoformat() if data.get("created_at") else "",
+            "written_questions": written_questions,
+            "written_total": written_total,
         }
 
     # ==================== 题目收藏 ====================

@@ -42,7 +42,7 @@ window.MockMate = window.MockMate || {};
 
     // 概述
     if (data.summary) {
-      html += '<p style="font-size:13px;color:var(--text2);margin-bottom:8px">' + M.esc(data.summary) + '</p>';
+      html += '<div class="markdown-body" style="font-size:13px;color:var(--text2);margin-bottom:8px">' + M.md(data.summary) + '</div>';
     }
 
     // 必备技能标签
@@ -78,7 +78,7 @@ window.MockMate = window.MockMate || {};
     if (data.common_interview_topics && data.common_interview_topics.length) {
       html += '<div style="margin-bottom:8px"><strong style="font-size:13px">常见面试题：</strong><br>';
       data.common_interview_topics.forEach(t => {
-        html += '<div class="topic-item">' + M.esc(t) + '</div>';
+        html += '<div class="topic-item markdown-body">' + M.md(t) + '</div>';
       });
       html += '</div>';
     }
@@ -101,8 +101,8 @@ window.MockMate = window.MockMate || {};
 
     // 行业洞察
     if (data.industry_insights) {
-      html += '<div style="font-size:12px;color:var(--text2);margin-top:6px;padding:8px;background:var(--surface);border-radius:6px">' +
-        M.esc(data.industry_insights) + '</div>';
+      html += '<div style="font-size:12px;color:var(--text2);margin-top:6px;padding:8px;background:var(--surface);border-radius:6px" class="markdown-body">' +
+        M.md(data.industry_insights) + '</div>';
     }
 
     // 重新分析按钮

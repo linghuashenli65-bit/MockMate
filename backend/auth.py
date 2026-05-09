@@ -7,6 +7,7 @@ import logging
 import random
 import string
 import time
+import warnings
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -85,7 +86,9 @@ async def init_user_tables(pool: aiomysql.Pool):
     """初始化用户表"""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("""
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                await cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     id INT AUTO_INCREMENT PRIMARY KEY,
                     email VARCHAR(255) UNIQUE NOT NULL,

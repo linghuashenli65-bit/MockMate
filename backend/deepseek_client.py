@@ -1,5 +1,6 @@
 """DeepSeek API 客户端（异步）"""
 import logging
+import time
 from typing import Optional
 
 import httpx
@@ -19,6 +20,16 @@ class DeepSeekClient:
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
         self._owns_client = True
+        self._last_latency_ms: float = 0
+        self._last_usage: dict = {}
+
+    @property
+    def last_latency_ms(self) -> float:
+        return self._last_latency_ms
+
+    @property
+    def last_usage(self) -> dict:
+        return self._last_usage
 
     def with_key(self, api_key: str) -> 'DeepSeekClient':
         """返回使用不同 API Key 的实例（共享 HTTP 连接池）"""
@@ -42,14 +53,20 @@ class DeepSeekClient:
     async def chat(self, model: str, messages: list, **kwargs) -> Optional[str]:
         if not self.ready:
             return None
+        self._last_latency_ms = 0
+        self._last_usage = {}
         try:
+            t0 = time.monotonic()
             resp = await self._client.post(
                 "/chat/completions",
                 headers=self._headers(),
                 json={"model": model, "messages": messages, **kwargs},
             )
+            self._last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
             resp.raise_for_status()
-            content = resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            self._last_usage = data.get("usage", {})
+            content = data["choices"][0]["message"]["content"]
             if content is None:
                 logger.warning(f"DeepSeek {model} 返回空内容")
             return content

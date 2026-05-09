@@ -51,6 +51,11 @@ DEEPSEEK_MODEL_WRITTEN_EVAL = "deepseek-chat"
 # 默认 AI 提供商: "mimo" 或 "deepseek"
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "mimo")
 
+# 是否允许未配置 API Key 的用户回退使用全局 Key（.env 中的配置）
+# false = 每个用户必须自己提供 API Key，否则返回 401
+# true = 兼容旧行为，未配 Key 的用户使用全局 Key（会记录警告日志）
+ALLOW_SHARED_API_KEY = os.environ.get("ALLOW_SHARED_API_KEY", "false").lower() == "true"
+
 # MySQL 数据库（可选）
 MYSQL_HOST = os.environ.get("MYSQL_HOST", "127.0.0.1")
 MYSQL_PORT = int(os.environ.get("MYSQL_PORT", "3306"))

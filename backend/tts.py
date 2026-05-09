@@ -24,14 +24,14 @@ class TTSEngine:
             logger.warning("语音合成失败（API 未配置或不可用）")
             return None
 
-        filename = f"{session_id}_q{index:03d}.mp3"
+        filename = f"{session_id}_q{index:03d}.wav"
         filepath = self._audio_dir / filename
         filepath.write_bytes(audio_data)
         logger.info(f"语音已生成: {filename}")
         return str(filepath)
 
     def get_audio_url(self, session_id: str, index: int) -> Optional[str]:
-        filename = f"{session_id}_q{index:03d}.mp3"
+        filename = f"{session_id}_q{index:03d}.wav"
         filepath = self._audio_dir / filename
         if filepath.exists():
             return f"/api/audio/{filename}"

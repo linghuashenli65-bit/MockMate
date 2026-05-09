@@ -20,6 +20,7 @@ class AIClient:
         self.mimo = MiMoClient()
         self.deepseek = DeepSeekClient()
         self._provider = AI_PROVIDER  # "mimo" or "deepseek"
+        self._last_used_client = self._primary()  # 最近实际调用的客户端
         self._auto_switch_provider()
 
     @property
@@ -51,6 +52,16 @@ class AIClient:
                 self._provider = "mimo"
                 logger.info("自动切换到 MiMo（DeepSeek 未配置）")
 
+    @property
+    def last_latency_ms(self) -> float:
+        """最近一次实际调用的请求耗时（ms）"""
+        return self._last_used_client.last_latency_ms
+
+    @property
+    def last_usage(self) -> dict:
+        """最近一次实际调用的 token 用量"""
+        return self._last_used_client.last_usage
+
     def with_keys(self, mimo_key: Optional[str] = None, deepseek_key: Optional[str] = None,
                   provider: Optional[str] = None) -> 'AIClient':
         """创建使用指定 API Key 的临时客户端（共享 HTTP 连接池，无需关闭）"""
@@ -58,6 +69,7 @@ class AIClient:
         client.mimo = self.mimo.with_key(mimo_key) if mimo_key else self.mimo
         client.deepseek = self.deepseek.with_key(deepseek_key) if deepseek_key else self.deepseek
         client._provider = provider if provider in ("mimo", "deepseek") else self._provider
+        client._last_used_client = client._primary()
         return client
 
     async def reason(self, messages: list, **kwargs) -> Optional[str]:
@@ -69,6 +81,9 @@ class AIClient:
             if fallback.ready:
                 logger.warning(f"{self._provider} 调用失败，fallback 到另一个提供商")
                 result = await fallback.reason(messages, **kwargs)
+                self._last_used_client = fallback
+            return result
+        self._last_used_client = client
         return result
 
     async def chat(self, messages: list, **kwargs) -> Optional[str]:
@@ -80,6 +95,9 @@ class AIClient:
             if fallback.ready:
                 logger.warning(f"{self._provider} 标准模型调用失败，fallback 到另一个提供商")
                 result = await fallback.chat_standard(messages, **kwargs)
+                self._last_used_client = fallback
+            return result
+        self._last_used_client = client
         return result
 
     async def written_eval(self, messages: list, **kwargs) -> Optional[str]:
@@ -91,6 +109,9 @@ class AIClient:
             if fallback.ready:
                 logger.warning(f"{self._provider} 笔试判卷调用失败，fallback 到另一个提供商")
                 result = await fallback.written_eval(messages, **kwargs)
+                self._last_used_client = fallback
+            return result
+        self._last_used_client = client
         return result
 
     async def extract_text_from_image(self, image_bytes: bytes) -> Optional[str]:

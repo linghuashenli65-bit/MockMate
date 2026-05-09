@@ -480,18 +480,18 @@ window.MockMate = window.MockMate || {};
         // 雷达图
         html += '<div class="chart-container" style="margin-top:12px"><h3>五维能力雷达</h3><div class="chart-wrap" style="max-width:300px;margin:0 auto"><canvas id="radarChart"></canvas></div></div>';
 
-        if (r.final_verdict) html += '<p style="font-size:13px;margin-top:8px;line-height:1.6">' + M.esc(r.final_verdict) + '</p>';
-        if (r.skill_summary) html += '<p style="font-size:12px;color:var(--text2);margin-top:4px">' + M.esc(r.skill_summary) + '</p>';
+        if (r.final_verdict) html += '<div class="markdown-body" style="font-size:13px;margin-top:8px;line-height:1.6">' + M.md(r.final_verdict) + '</div>';
+        if (r.skill_summary) html += '<div class="markdown-body" style="font-size:12px;color:var(--text2);margin-top:4px">' + M.md(r.skill_summary) + '</div>';
 
         if (r.strengths && r.strengths.length) {
-          html += '<div style="margin-top:8px"><strong style="color:var(--green)">优势</strong><br><span style="font-size:13px">' + r.strengths.map(M.esc).join('；') + '</span></div>';
+          html += '<div style="margin-top:8px"><strong style="color:var(--green)">优势</strong><br><span style="font-size:13px" class="markdown-body">' + r.strengths.map(function(s){ return M.md(s); }).join('；') + '</span></div>';
         }
         if (r.weaknesses && r.weaknesses.length) {
-          html += '<div style="margin-top:4px"><strong style="color:var(--yellow)">待提升</strong><br><span style="font-size:13px">' + r.weaknesses.map(M.esc).join('；') + '</span></div>';
+          html += '<div style="margin-top:4px"><strong style="color:var(--yellow)">待提升</strong><br><span style="font-size:13px" class="markdown-body">' + r.weaknesses.map(function(w){ return M.md(w); }).join('；') + '</span></div>';
         }
         if (r.preparation_advice && r.preparation_advice.length) {
           html += '<div style="margin-top:8px"><strong>复习建议</strong><br><ul style="font-size:13px;padding-left:20px;margin-top:4px">';
-          r.preparation_advice.forEach(a => { html += '<li>' + M.esc(a) + '</li>'; });
+          r.preparation_advice.forEach(a => { html += '<li class="markdown-body">' + M.md(a) + '</li>'; });
           html += '</ul></div>';
         }
       }
@@ -502,8 +502,8 @@ window.MockMate = window.MockMate || {};
         html +=
           '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:8px">' +
             '<div style="font-size:12px;color:var(--accent2)">第 ' + (i+1) + ' 题 · 得分 ' + (h.score?.overall_score || 0) + '</div>' +
-            '<div style="font-size:13px;margin:4px 0"><strong>问：</strong>' + M.esc(h.q || '') + '</div>' +
-            '<div style="font-size:13px;color:var(--text2)"><strong>答：</strong>' + M.esc(answerSnippet) + (h.a && h.a.length > 200 ? '...' : '') + '</div>' +
+            '<div style="font-size:13px;margin:4px 0" class="markdown-body"><strong>问：</strong>' + M.md(h.q || '') + '</div>' +
+            '<div style="font-size:13px;color:var(--text2)" class="markdown-body"><strong>答：</strong>' + M.md(answerSnippet) + (h.a && h.a.length > 200 ? '...' : '') + '</div>' +
           '</div>';
       });
 

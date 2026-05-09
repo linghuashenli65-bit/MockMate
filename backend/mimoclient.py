@@ -2,6 +2,7 @@
 import logging
 import base64
 import io
+import time
 from typing import Optional
 
 import httpx
@@ -22,6 +23,17 @@ class MiMoClient:
             limits=httpx.Limits(max_keepalive_connections=5, max_connections=10),
         )
         self._owns_client = True
+        # 最后一次 API 调用的耗时（ms）和 token 用量
+        self._last_latency_ms: float = 0
+        self._last_usage: dict = {}
+
+    @property
+    def last_latency_ms(self) -> float:
+        return self._last_latency_ms
+
+    @property
+    def last_usage(self) -> dict:
+        return self._last_usage
 
     def with_key(self, api_key: str) -> 'MiMoClient':
         """返回使用不同 API Key 的实例（共享 HTTP 连接池）"""
@@ -45,14 +57,20 @@ class MiMoClient:
     async def chat(self, model: str, messages: list, **kwargs) -> Optional[str]:
         if not self.ready:
             return None
+        self._last_latency_ms = 0
+        self._last_usage = {}
         try:
+            t0 = time.monotonic()
             resp = await self._client.post(
                 "/chat/completions",
                 headers=self._headers(),
                 json={"model": model, "messages": messages, **kwargs},
             )
+            self._last_latency_ms = round((time.monotonic() - t0) * 1000, 1)
             resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+            data = resp.json()
+            self._last_usage = data.get("usage", {})
+            return data["choices"][0]["message"]["content"]
         except Exception as e:
             logger.error(f"MiMo chat error: {e}")
             return None
@@ -105,24 +123,40 @@ class MiMoClient:
             return None
 
     async def text_to_speech(self, text: str) -> Optional[bytes]:
-        """语音合成：文字转语音"""
+        """语音合成：文字转语音（MiMo TTS 使用 chat completions 接口）"""
         if not self.ready:
             return None
         try:
             resp = await self._client.post(
-                "/audio/speech",
+                "/chat/completions",
                 headers=self._headers(),
                 json={
                     "model": MIMO_MODEL_TTS,
-                    "input": text,
-                    "response_format": "mp3",
-                    "speed": 1.0,
+                    "messages": [
+                        {"role": "user", "content": "请用中文朗读以下内容"},
+                        {"role": "assistant", "content": f"<style>自然</style>{text}"},
+                    ],
+                    "audio": {
+                        "format": "wav",
+                        "voice": "mimo_default",
+                    },
                 },
             )
+            if resp.status_code == 404:
+                logger.info("MiMo TTS 端点不可用（404），语音功能已降级")
+                return None
             resp.raise_for_status()
-            return resp.content
+            data = resp.json()
+            audio_b64 = data.get("choices", [{}])[0].get("message", {}).get("audio", {}).get("data", "")
+            if not audio_b64:
+                logger.warning("MiMo TTS 响应中没有 audio.data 字段")
+                return None
+            return base64.b64decode(audio_b64)
+        except httpx.HTTPStatusError as e:
+            logger.warning(f"MiMo TTS 返回 HTTP {e.response.status_code}")
+            return None
         except Exception as e:
-            logger.error(f"MiMo TTS error: {e}")
+            logger.warning(f"MiMo TTS 调用失败: {e}")
             return None
 
     async def close(self):

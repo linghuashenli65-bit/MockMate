@@ -39,6 +39,21 @@ window.MockMate = window.MockMate || {};
     return div.innerHTML;
   };
 
+  // ---- Markdown 渲染（安全转义 HTML，支持 GFM） ----
+  M.md = function (str) {
+    if (!str) return '';
+    if (typeof marked !== 'function' && typeof marked?.parse !== 'function') {
+      return M.esc(str); // 降级：无 marked 时纯文本
+    }
+    try {
+      const parse = typeof marked === 'function' ? marked : marked.parse;
+      return parse(str, { breaks: true, gfm: true });
+    } catch(e) {
+      console.warn('Markdown render error:', e);
+      return M.esc(str);
+    }
+  };
+
   // ---- 分数颜色 ----
   M.scoreColor = function (v) {
     const n = Number(v) || 0;

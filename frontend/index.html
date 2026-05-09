@@ -32,6 +32,7 @@
     <button class="tab" data-tab="history">历史记录</button>
     <button class="tab" data-tab="favorites">题目收藏</button>
     <button class="tab" data-tab="custom">自定义题目</button>
+    <button class="tab" data-tab="finetune">微调</button>
     <button class="tab" data-tab="settings">设置</button>
   </div>
 
@@ -166,6 +167,51 @@
     <div id="customQuestionsList"><div class="empty-state">还没有自定义题目，点击上方按钮添加</div></div>
   </div>
 
+  <!-- ============ Tab: 微调 ============ -->
+  <div class="tab-content" id="tab-finetune">
+    <div class="card">
+      <h2>训练数据</h2>
+      <div id="trainingStats" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:12px 0">
+        <div class="stat-box"><div class="stat-num" id="statTotal">-</div><div class="stat-label">总采集</div></div>
+        <div class="stat-box"><div class="stat-num" id="statEvals">-</div><div class="stat-label">面试评分</div></div>
+        <div class="stat-box"><div class="stat-num" id="statScores">-</div><div class="stat-label">简历评分</div></div>
+        <div class="stat-box"><div class="stat-num" id="statReviewed">-</div><div class="stat-label">已修正</div></div>
+        <div class="stat-box" style="border-left-color:var(--green)"><div class="stat-num" id="statGood">-</div><div class="stat-label">👍 可用</div></div>
+        <div class="stat-box" style="border-left-color:var(--red)"><div class="stat-num" id="statBad">-</div><div class="stat-label">👎 待修</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>数据浏览</h2>
+      <div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap">
+        <select id="filterType" class="form-input" style="width:auto;min-width:120px">
+          <option value="">全部类型</option>
+          <option value="eval">面试评分</option>
+          <option value="score">简历评分</option>
+        </select>
+        <select id="filterQuality" class="form-input" style="width:auto;min-width:120px">
+          <option value="">全部状态</option>
+          <option value="good">👍 已采纳</option>
+          <option value="bad">👎 已点踩</option>
+          <option value="__pending__">⏳ 待反馈</option>
+        </select>
+        <select id="filterSource" class="form-input" style="width:auto;min-width:120px">
+          <option value="raw">原始数据</option>
+          <option value="reviewed">已修正</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="refreshDataBtn">刷新</button>
+      </div>
+      <div id="trainingRecords"><div class="empty-state">暂无数据</div></div>
+    </div>
+    <div class="card" style="opacity:0.6">
+      <h2>LoRA 训练 <span style="font-size:12px;color:var(--text2);font-weight:400">（开发中）</span></h2>
+      <p style="font-size:13px;color:var(--text2)">将在后续版本中支持：选择基座模型、配置 LoRA 参数、启动训练、实时 loss 显示</p>
+    </div>
+    <div class="card" style="opacity:0.6">
+      <h2>Adapter 管理 <span style="font-size:12px;color:var(--text2);font-weight:400">（开发中）</span></h2>
+      <p style="font-size:13px;color:var(--text2)">将在后续版本中支持：加载/卸载 adapter、版本管理、训练数据对比</p>
+    </div>
+  </div>
+
   <!-- ============ Tab: 设置 ============ -->
   <div class="tab-content" id="tab-settings">
     <div class="card">
@@ -207,7 +253,8 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- Chart.js CDN -->
+<!-- Markdown & Chart.js CDN -->
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 
 <!-- Application Scripts -->
@@ -221,6 +268,8 @@
 <script src="js/custom.js"></script>
 <script src="js/auth.js"></script>
 <script src="js/settings.js"></script>
+<script src="js/feedback.js"></script>
+<script src="js/finetune.js"></script>
 
 </body>
 </html>
