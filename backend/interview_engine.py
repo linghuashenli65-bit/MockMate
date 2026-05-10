@@ -6,10 +6,13 @@
 3. 动态决策：追问/换题/升级难度
 """
 import asyncio
+import hashlib
 import json
 import logging
 import re
 import time
+from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 from .ai_client import AIClient
@@ -460,6 +463,95 @@ correct_answer 必须正确无误，explanation 2-3 句解析。
             report["score_breakdown"] = computed["score_breakdown"]
 
         return report
+
+    # ==================== 预生成题库 ====================
+
+    def _build_pool_prompt(self, resume: str, profile: dict, difficulty: str, round_name: str, used_questions: set = None) -> str:
+        """预生成题库的简化 prompt（不含答题历史）"""
+        rc = self._get_round_config(round_name)
+        profile_str = json.dumps(profile, ensure_ascii=False, indent=2)
+
+        difficulty_desc = {
+            "easy": "基础难度，考察核心概念和基础知识。题目应该简单直接。",
+            "medium": "中等难度，考察应用能力和理解深度。需要一定的分析思考。",
+            "hard": "高难度，考察综合分析和复杂问题解决能力。需要深入的技术理解。",
+        }
+
+        used_list = list(used_questions or [])
+        dedup_note = ""
+        if used_list:
+            dedup_note = "\n【去重】以下题目已经出过，严禁重复：\n" + "\n".join(f"- {q[:80]}..." for q in used_list)
+
+        return f"""你是一个专业的面试官。请为以下岗位生成一道面试题。
+
+== 岗位画像 ==
+{profile_str[:1000]}
+
+== 简历 ==
+{resume[:1500]}
+
+{rc['prompt_extra']}
+
+难度：{difficulty} — {difficulty_desc.get(difficulty, "")}
+{dedup_note}
+
+只输出 JSON:
+{{"question": "题目", "type": "技术/行为/设计", "difficulty": "{difficulty}", "topic": "考察主题", "expected_points": ["要点1", "要点2"]}}"""
+
+    async def _gen_one_for_pool(self, resume: str, profile: dict, difficulty: str, round_name: str, used_questions: set) -> dict | None:
+        """生成一道预选题"""
+        prompt = self._build_pool_prompt(resume, profile, difficulty, round_name, used_questions)
+        raw = await self.ai.chat([{"role": "user", "content": prompt}], max_tokens=2048)
+        if not raw:
+            return None
+        q = self._parse_question(raw, 0, round_name, profile, used_questions)
+        return q if q and q.get("question") else None
+
+    async def refill_pool(self, pool: 'QuestionPool', resume: str, profile: dict, round_name: str, used_questions: set = None):
+        """后台并行补题，直到 pool 饱和或所有难度都有足够题目"""
+        if round_name == "written":
+            return  # 笔试有独立的预生成系统
+
+        used = set(used_questions or set())
+        # 把已存在的池中题目也加入去重
+        for diff in ["easy", "medium", "hard"]:
+            for q in getattr(pool, diff):
+                used.add(q.get("question", ""))
+
+        while not pool.is_saturated():
+            if not pool.needs_refill():
+                break
+
+            missing_diffs = []
+            for diff in ["easy", "medium", "hard"]:
+                if len(getattr(pool, diff)) < 2:
+                    missing_diffs.append(diff)
+
+            if not missing_diffs:
+                break
+
+            logger.info(f"后台补题: 缺 {missing_diffs} (已生成 {pool.total_generated}, 上限 {pool.total_needed + 4})")
+
+            tasks = [
+                self._gen_one_for_pool(resume, profile, diff, round_name, used)
+                for diff in missing_diffs
+            ]
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            for diff, result in zip(missing_diffs, results):
+                if isinstance(result, Exception):
+                    logger.error(f"预生成 {diff} 题失败: {result}")
+                    continue
+                if result and result.get("question"):
+                    pool.add(result, diff)
+                    used.add(result["question"])
+                    logger.info(f"预生成 {diff} 题成功 (总生成: {pool.total_generated})")
+                else:
+                    logger.warning(f"预生成 {diff} 题返回空结果")
+
+            if pool.is_saturated():
+                logger.info(f"题库已达饱和: total_generated={pool.total_generated}")
+                break
 
     # ---- 笔试分数计算（基于实际答题数据，不依赖 AI） ----
 
@@ -1103,3 +1195,124 @@ correct_answer 必须正确无误，explanation 2-3 句解析。
                 except json.JSONDecodeError:
                     pass
         return default
+
+
+# ==================== 题库池 ====================
+
+class QuestionPool:
+    """面试题库池：easy/medium/hard 三级缓存，控制生成上限"""
+
+    def __init__(self, total_needed: int):
+        self.easy: list[dict] = []
+        self.medium: list[dict] = []
+        self.hard: list[dict] = []
+        self.total_needed = total_needed
+        self.total_generated = 0
+
+    def pop(self, difficulty: str) -> dict | None:
+        pool = getattr(self, difficulty, None)
+        if pool and len(pool) > 0:
+            return pool.pop(0)
+        return None
+
+    def add(self, question: dict, difficulty: str):
+        pool = getattr(self, difficulty, None)
+        if pool is not None:
+            pool.append(question)
+            self.total_generated += 1
+
+    def needs_refill(self) -> bool:
+        """任一难度 < 2 题 且 未达饱和"""
+        if self.is_saturated():
+            return False
+        return len(self.easy) < 2 or len(self.medium) < 2 or len(self.hard) < 2
+
+    def is_saturated(self) -> bool:
+        """达到生成上限（总题数 + 4）"""
+        return self.total_generated >= self.total_needed + 4
+
+    def surplus(self) -> list[dict]:
+        """面试结束时未使用的题目（用于缓存复用）"""
+        result = list(self.easy)
+        result.extend(self.medium)
+        result.extend(self.hard)
+        return result
+
+    def to_dict(self) -> dict:
+        return {
+            "easy": self.easy,
+            "medium": self.medium,
+            "hard": self.hard,
+            "total_needed": self.total_needed,
+            "total_generated": self.total_generated,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> 'QuestionPool':
+        pool = cls(data.get("total_needed", 0))
+        pool.easy = data.get("easy", [])
+        pool.medium = data.get("medium", [])
+        pool.hard = data.get("hard", [])
+        pool.total_generated = data.get("total_generated", 0)
+        return pool
+
+    def import_cached(self, questions: list[dict]):
+        """从缓存加载盈余题目（不计数 total_generated）"""
+        for q in questions:
+            diff = q.get("difficulty", "medium")
+            pool = getattr(self, diff, None)
+            if pool is not None:
+                pool.append(q)
+
+
+# ==================== 题库缓存 ====================
+
+POOL_CACHE_FILE = Path(__file__).resolve().parent / "data" / "question_pool_cache.json"
+
+
+def _get_pool_cache_key(resume: str, position: str, round_name: str) -> str:
+    raw = f"{resume[:500]}:{position}:{round_name}"
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def load_pool_cache(resume: str, position: str, round_name: str) -> list[dict] | None:
+    """加载缓存中的盈余题目"""
+    key = _get_pool_cache_key(resume, position, round_name)
+    try:
+        if POOL_CACHE_FILE.exists():
+            data = json.loads(POOL_CACHE_FILE.read_text(encoding="utf-8"))
+            entry = data.get(key)
+            if entry:
+                expires = entry.get("_expires", "")
+                if expires and datetime.now().isoformat() < expires:
+                    logger.info(f"题库缓存命中: {key[:12]} ({len(entry['questions'])} 题)")
+                    return entry["questions"]
+                else:
+                    logger.info(f"题库缓存已过期: {key[:12]}")
+                    data.pop(key, None)
+                    POOL_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        logger.warning(f"读取题库缓存失败: {e}")
+    return None
+
+
+def save_pool_cache(resume: str, position: str, round_name: str, questions: list[dict]):
+    """保存盈余题目到缓存（7天有效）"""
+    if not questions:
+        return
+    key = _get_pool_cache_key(resume, position, round_name)
+    expires = (datetime.now() + timedelta(days=7)).isoformat()
+    try:
+        POOL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {}
+        if POOL_CACHE_FILE.exists():
+            data = json.loads(POOL_CACHE_FILE.read_text(encoding="utf-8"))
+        data[key] = {
+            "questions": questions,
+            "_cached_at": datetime.now().isoformat(),
+            "_expires": expires,
+        }
+        POOL_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        logger.info(f"题库缓存已保存: {key[:12]} ({len(questions)} 题, 7天有效)")
+    except Exception as e:
+        logger.warning(f"保存题库缓存失败: {e}")

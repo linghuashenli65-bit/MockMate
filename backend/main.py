@@ -25,7 +25,7 @@ from docx import Document
 from .config import HOST, PORT, DATA_DIR, ALLOW_SHARED_API_KEY
 from .ai_client import AIClient
 from .web_research import WebResearch
-from .interview_engine import InterviewEngine
+from .interview_engine import InterviewEngine, QuestionPool, load_pool_cache, save_pool_cache
 from .tts import TTSEngine
 from .finetune import get_collector
 from .database import db
@@ -55,6 +55,17 @@ logger = logging.getLogger("mockmate")
 ai = AIClient()
 mailer = None  # 在 lifespan 中初始化
 
+# 各类面试默认总题数
+ROUND_TOTALS = {
+    "written": 20,
+    "tech_1": 8,
+    "tech_2": 6,
+    "comprehensive": 6,
+}
+
+# 面试题库池（内存）
+_question_pools: dict[str, 'QuestionPool'] = {}
+
 # 笔试后台预生成
 _written_bg_tasks: dict[str, asyncio.Task] = {}   # 运行中的 task
 _written_bg_results: dict[str, list[dict]] = {}   # 已完成的结果
@@ -76,11 +87,26 @@ async def _background_written_batch(
         _written_bg_tasks.pop(session_id, None)
 
 
+async def background_refill(session_id: str, pool: QuestionPool, resume: str, profile: dict, round_name: str):
+    """后台补题任务"""
+    try:
+        engine = InterviewEngine(ai)
+        await engine.refill_pool(pool, resume, profile, round_name, used_questions=set())
+        logger.info(f"后台补题完成 [{session_id}]: 池中 easy={len(pool.easy)} medium={len(pool.medium)} hard={len(pool.hard)}")
+    except Exception as e:
+        logger.error(f"后台补题失败 [{session_id}]: {e}")
+
+
 # -------- API Key 请求头提取 --------
 
 def get_user_ai(
     x_mimo_api_key: Optional[str] = Header(None, alias="X-Mimo-Api-Key"),
     x_deepseek_api_key: Optional[str] = Header(None, alias="X-Deepseek-Api-Key"),
+    x_qwen_api_key: Optional[str] = Header(None, alias="X-Qwen-Api-Key"),
+    x_qwen_model_reasoner: Optional[str] = Header(None, alias="X-Qwen-Model-Reasoner"),
+    x_qwen_model_chat: Optional[str] = Header(None, alias="X-Qwen-Model-Chat"),
+    x_qwen_model_written_eval: Optional[str] = Header(None, alias="X-Qwen-Model-Written-Eval"),
+    x_qwen_tts_model: Optional[str] = Header(None, alias="X-Qwen-Tts-Model"),
     x_ai_provider: Optional[str] = Header(None, alias="X-Ai-Provider"),
 ) -> AIClient:
     """从请求头提取 API Key，创建 per-request 的 AIClient。
@@ -88,13 +114,18 @@ def get_user_ai(
     - false（默认）：抛出 401，要求用户配置自己的 Key
     - true：回退到全局配置（记警告日志）
     """
-    if x_mimo_api_key or x_deepseek_api_key:
-        return ai.with_keys(x_mimo_api_key, x_deepseek_api_key, x_ai_provider)
+    has_any_key = x_mimo_api_key or x_deepseek_api_key or x_qwen_api_key
+    if has_any_key:
+        return ai.with_keys(x_mimo_api_key, x_deepseek_api_key, x_qwen_api_key,
+                            qwen_reasoner_model=x_qwen_model_reasoner,
+                            qwen_chat_model=x_qwen_model_chat,
+                            qwen_written_eval_model=x_qwen_model_written_eval,
+                            qwen_tts_model=x_qwen_tts_model, provider=x_ai_provider)
     if x_ai_provider:
         # 只切了提供商，没换 key
         return ai.with_keys(provider=x_ai_provider)
     if not ALLOW_SHARED_API_KEY:
-        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key 或 X-Deepseek-Api-Key 请求头）")
+        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key / X-Deepseek-Api-Key / X-Qwen-Api-Key 请求头）")
     logger.warning("未提供 API Key 的请求正在使用全局配置的 Key（如需关闭请设置 ALLOW_SHARED_API_KEY=false）")
     return ai
 
@@ -150,12 +181,14 @@ class StartInterview(BaseModel):
     profile: dict = {}
     round: str = "tech_1"
     custom_question_ids: list[int] = []
+    enable_tts: bool = True
 
 class AnswerSubmission(BaseModel):
     session_id: str
     question_index: int
     answer: str
     hint_used: bool = False
+    enable_tts: Optional[bool] = None
 
 class EndInterview(BaseModel):
     session_id: str
@@ -204,7 +237,7 @@ async def lifespan(app: FastAPI):
     logger.info("MockMate 服务启动")
     logger.info(f"  日志文件: {log_file}")
     logger.info(f"  数据库:   {'MySQL' if db.available else 'JSON 文件'}")
-    for name, client in [("MiMo API", ai.mimo), ("DeepSeek", ai.deepseek)]:
+    for name, client in [("MiMo API", ai.mimo), ("DeepSeek", ai.deepseek), ("Qwen", ai.qwen)]:
         logger.info(f"  {name}:    {'已配置' if client.ready else '未配置'}")
     logger.info(f"  当前提供商:   {ai.provider}")
     stats = await db.cache_stats()
@@ -227,6 +260,7 @@ async def get_status(user_ai: AIClient = Depends(get_user_ai)):
         "provider": user_ai.provider,
         "mimo_ready": user_ai.mimo.ready,
         "deepseek_ready": user_ai.deepseek.ready,
+        "qwen_ready": user_ai.qwen.ready,
         "db": "mysql" if db.available else "json",
         "cache": stats,
     }
@@ -234,7 +268,7 @@ async def get_status(user_ai: AIClient = Depends(get_user_ai)):
 @app.post("/api/config")
 def update_config(cfg: ConfigUpdate, user_ai: AIClient = Depends(get_user_ai)):
     """切换 AI 提供商（API Key 由浏览器管理，不经过后端存储）"""
-    if cfg.provider in ("mimo", "deepseek"):
+    if cfg.provider in ("mimo", "deepseek", "qwen"):
         user_ai.provider = cfg.provider
     return {"message": "配置已更新"}
 
@@ -452,6 +486,9 @@ async def score_resume(req: ResumeScoreRequest, user_ai: AIClient = Depends(get_
 
     usage = user_ai.last_usage
     token_count = usage.get("total_tokens") if usage else None
+    # 修复 AI 输出中 JSON 字符串内的真实换行符 → \\n 转义序列
+    result = InterviewEngine._repair_json_newlines(result)
+
     collector = get_collector()
     try:
         data = json.loads(result)
@@ -593,7 +630,19 @@ async def start_interview(req: StartInterview, user_ai: AIClient = Depends(get_u
         }
 
     question = await engine.generate_first_question(req.resume, profile, round_name)
-    audio_path = await tts.synthesize(question["question"], session_id, 0)
+    enable_tts = req.enable_tts
+    audio_path = await tts.synthesize(question["question"], session_id, 0) if enable_tts else None
+
+    # 初始化题库池
+    total_needed = ROUND_TOTALS.get(round_name, 8)
+    pool = QuestionPool(total_needed=total_needed)
+    cached = load_pool_cache(req.resume, req.position, round_name)
+    if cached:
+        pool.import_cached(cached)
+        logger.info(f"题库缓存加载: {len(cached)} 题 (session={session_id})")
+    _question_pools[session_id] = pool
+    if pool.needs_refill():
+        asyncio.create_task(background_refill(session_id, pool, req.resume, profile, round_name))
 
     session = {
         "id": session_id,
@@ -605,6 +654,8 @@ async def start_interview(req: StartInterview, user_ai: AIClient = Depends(get_u
         "history": [],
         "current_question": question,
         "current_index": 0,
+        "enable_tts": enable_tts,
+        "question_pool": pool.to_dict(),
         "created_at": datetime.now().isoformat(),
     }
     await db.save_session(session_id, session, user_id=uid)
@@ -625,6 +676,10 @@ async def submit_answer(req: AnswerSubmission, user_ai: AIClient = Depends(get_u
     if not session:
         raise HTTPException(404, "面试会话不存在")
     uid = current_user["id"]
+
+    # 实时更新 TTS 偏好（来自面试页面的即时开关）
+    if req.enable_tts is not None:
+        session["enable_tts"] = req.enable_tts
 
     current_q = session.get("current_question", {})
     question_text = current_q.get("question", "")
@@ -723,14 +778,57 @@ async def submit_answer(req: AnswerSubmission, user_ai: AIClient = Depends(get_u
         }
 
     next_index = session["current_index"] + 1
-    next_q = await engine.generate_next_question(
-        session["history"], session.get("resume", ""), session.get("profile", {}),
-        round_name=session.get("round", "tech_1"),
-    )
-    audio_path = await tts.synthesize(next_q["question"], req.session_id, next_index)
+
+    # 从题库池取题（按难度匹配）
+    pool = _question_pools.get(req.session_id)
+    if pool is None:
+        pool_dict = session.get("question_pool")
+        if pool_dict:
+            pool = QuestionPool.from_dict(pool_dict)
+            _question_pools[req.session_id] = pool
+
+    if pool:
+        last_score = evaluation.get("overall_score", 5)
+        if last_score >= 7:
+            next_diff = "hard"
+        elif last_score >= 4:
+            next_diff = "medium"
+        else:
+            next_diff = "easy"
+
+        next_q = pool.pop(next_diff)
+        if next_q is None:
+            # 目标难度无题，降级取其他难度
+            for diff in ["medium", "easy", "hard"]:
+                if diff != next_diff:
+                    next_q = pool.pop(diff)
+                    if next_q:
+                        break
+        logger.info(f"从题库取题: diff={next_diff}, result={'命中' if next_q else '未命中'} "
+                    f"(池中: easy={len(pool.easy)} medium={len(pool.medium)} hard={len(pool.hard)})")
+
+        # 触发后台补题
+        if pool.needs_refill() and not pool.is_saturated():
+            asyncio.create_task(background_refill(
+                req.session_id, pool, session.get("resume", ""),
+                session.get("profile", {}), session.get("round", "tech_1"),
+            ))
+    else:
+        next_q = None
+
+    if next_q is None:
+        next_q = await engine.generate_next_question(
+            session["history"], session.get("resume", ""), session.get("profile", {}),
+            round_name=session.get("round", "tech_1"),
+        )
+
+    audio_path = await tts.synthesize(next_q["question"], req.session_id, next_index) \
+        if session.get("enable_tts", True) else None
 
     session["current_question"] = next_q
     session["current_index"] = next_index
+    if pool:
+        session["question_pool"] = pool.to_dict()
     await db.save_session(req.session_id, session, user_id=uid)
 
     return {
@@ -752,6 +850,20 @@ async def end_interview(req: EndInterview, user_ai: AIClient = Depends(get_user_
     report = await engine.end_interview(session["history"], session.get("profile", {}),
                                         round_name=session.get("round", "tech_1"))
     session["report"] = report
+
+    # 缓存盈余题目到复用池
+    pool = _question_pools.pop(req.session_id, None)
+    if pool is None:
+        pool_dict = session.get("question_pool")
+        if pool_dict:
+            pool = QuestionPool.from_dict(pool_dict)
+    if pool:
+        surplus = pool.surplus()
+        if surplus:
+            save_pool_cache(session.get("resume", ""), session.get("position", ""),
+                           session.get("round", ""), surplus)
+            logger.info(f"缓存盈余: {len(surplus)} 题 (session={req.session_id})")
+
     await db.save_session(req.session_id, session, user_id=current_user["id"])
 
     return {"report": report, "history": session["history"], "round": session.get("round", "")}
@@ -948,6 +1060,7 @@ def main():
     提供商:   {ai.provider}
     MiMo:     {'[OK]' if ai.mimo.ready else '[  ]'}
     DeepSeek: {'[OK]' if ai.deepseek.ready else '[  ]'}
+    Qwen:     {'[OK]' if ai.qwen.ready else '[  ]'}
     日志:     {log_file}
 
     局域网其他设备请使用 http://{lan_ip}:{PORT} 访问

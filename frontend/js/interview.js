@@ -293,6 +293,7 @@ window.MockMate = window.MockMate || {};
         profile: M.state.currentProfile || {},
         round: selectedRound,
         custom_question_ids: customIds,
+        enable_tts: M.Settings.getEnableTts(),
       });
 
       M.state.currentSessionId = result.session_id;
@@ -301,6 +302,7 @@ window.MockMate = window.MockMate || {};
       M.state.currentRound = result.round;
       M.state.isWrittenRound = result.round === 'written';
       M.state.totalQuestions = customIds.length || M.ROUND_TOTALS[result.round] || 8;
+      M.state._ttsEnabled = M.Settings.getEnableTts();
 
       M.ls.set('active_session', result.session_id);
       startTimer();
@@ -330,6 +332,7 @@ window.MockMate = window.MockMate || {};
     M.state._lastQuestion = question;
     M.state._hintUsed = false;
     updateProgress(index, total);
+    I.updateTtsIndicator();
     document.getElementById('questionCount').textContent =
       '第 ' + (index + 1) + ' / ' + total + ' 题';
 
@@ -346,8 +349,16 @@ window.MockMate = window.MockMate || {};
     // 语音
     let audioHtml = '';
     if (audioUrl) {
-      audioHtml = '<div style="margin-top:12px"><audio controls style="width:100%;height:36px"><source src="' +
-        audioUrl + '" type="audio/wav"></audio></div>';
+      if (M.state._ttsEnabled) {
+        audioHtml = '<div style="margin-top:12px"><audio controls style="width:100%;height:36px"><source src="' +
+          audioUrl + '" type="audio/wav"></audio></div>';
+      } else {
+        audioHtml = '<div style="margin-top:12px">' +
+          '<button class="btn btn-sm btn-secondary" onclick="this.style.display=\'none\';this.nextElementSibling.style.display=\'block\'" style="font-size:12px">🔊 播放本题语音</button>' +
+          '<div style="display:none;margin-top:8px"><audio controls style="width:100%;height:36px"><source src="' +
+          audioUrl + '" type="audio/wav"></audio></div>' +
+        '</div>';
+      }
     }
 
     // 倒计时显示
@@ -516,6 +527,7 @@ window.MockMate = window.MockMate || {};
         question_index: qIndex,
         answer,
         hint_used: M.state._hintUsed || false,
+        enable_tts: M.state._ttsEnabled,
       });
 
       M.state.currentQuestionIndex = result.next_index;
@@ -624,6 +636,7 @@ window.MockMate = window.MockMate || {};
         session_id: sessionId,
         question_index: qIndex,
         answer: '',
+        enable_tts: M.state._ttsEnabled,
       });
 
       M.state.currentQuestionIndex = result.next_index;
@@ -729,6 +742,23 @@ window.MockMate = window.MockMate || {};
     return '<span class="score-tag">' + label +
       ' <span class="val" style="color:' + M.scoreColor(v) + '">' + v + '</span></span>';
   }
+
+  // ---- TTS 开关 ----
+  I.toggleTts = function () {
+    var enabled = !M.state._ttsEnabled;
+    M.state._ttsEnabled = enabled;
+    M.Settings.setEnableTts(enabled);
+    I.updateTtsIndicator();
+    M.toast('语音播报已' + (enabled ? '开启' : '关闭'));
+  };
+
+  I.updateTtsIndicator = function () {
+    var el = document.getElementById('ttsToggle');
+    if (!el) return;
+    el.textContent = M.state._ttsEnabled ? '🔊 语音开' : '🔇 语音关';
+    el.style.borderColor = M.state._ttsEnabled ? 'var(--green)' : 'var(--border)';
+    el.title = '点击' + (M.state._ttsEnabled ? '关闭' : '开启') + '语音播报';
+  };
 
   // ---- 结束面试 ----
   I.endInterview = async function () {

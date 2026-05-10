@@ -1,0 +1,90 @@
+{
+  "id": "a6d88d5eb0ae",
+  "type": "evaluation",
+  "round": "tech_2",
+  "question": "设计一个高可用的AI推理服务网关，要求对接多个第三方大模型API（如GPT-4、DeepSeek、Qwen等），支持请求路由、限流、熔断、缓存、成本控制、自动降级。请画出架构图并说明关键组件设计。",
+  "answer": ". 接入与流量控制层\n负载均衡/API网关\n\n采用 Nginx/Envoy 或云原生 API 网关（如 APISIX、Kong）实现七层负载。\n\n负责 TLS 终止、协议转换（如 HTTP/gRPC/WebSocket），将外部 REST 请求统一转换为内部标准格式。\n\n认证鉴权：支持 API Key、JWT 等，对调用方进行身份验证和权限分级（不同用户允许调用不同模型池）。\n\n高可用设计\n\n网关多实例部署，前端挂载 LB 做健康检查和故障转移。\n\n使用 配置中心（Nacos/Consul/etcd）动态下线路由规则、限流阈值等，避免重启。\n\n2. 请求路由引擎\n这是决策中枢，负责为每个请求选出最合适的模型。\n\n输入：用户意图、输入长度、延迟要求、预算上限、预期质量等。\n核心机制：\n\n维护一张 模型能力映射表：记录每个模型的支持语言、任务类型（对话/翻译/代码/摘要等）、上下文窗口、单价、平均延迟、质量评分。\n\n用户可携带 routing-hint（如 deepseek-chat），也可由系统按规则自动决策，例如：\n\n“简单对话 → 低成本模型（DeepSeek v3）”\n\n“高精度推理 → 高价模型（GPT-4o）”\n\n“长上下文 → 大窗口模型（Qwen2.5-128K）”\n\n动态路由\n\n结合下游实时健康状态（来自熔断器）、当前预算消耗（来自成本控制器）和负载情况（来自限流器）进行调整。\n\n支持多路分发：紧急请求可同时发送到两个模型，取最先返回的结果，兼顾速度与可靠性。\n\n3. 限流器\n保护后端 API 免受突发流量冲击，同时满足不同用户的 SLA。\n\n算法：\n\n针对全局限流（保护第三方 API 的 TPM/RPM 配额）使用滑动窗口计数器或令牌桶，状态存储在 Redis 中。\n\n针对租户级限流，采用分桶式令牌桶，每个租户/应用分配独立速率（如 1000 req/min）。\n\n实现：\n\n通过 Sentinel 或 Guava RateLimiter 编码实现，Redis 执行 Lua 脚本保证原子性。\n\n超限时返回 429 Too Many Requests，并触发降级逻辑。\n\n4. 熔断器\n避免因某个模型 API 故障导致雪崩，并自动实现故障隔离。\n\n设计：\n\n每个模型适配器都包裹一个状态机（关闭→打开→半开），心跳检测按固定间隔（如每10秒）发起探测请求。\n\n触发条件：错误率>50% 或连续失败次数>5，则熔断（自动忽略该模型，路由引擎暂停分配新请求）。\n\n恢复策略：半开状态时放行部分流量，如果连续成功则关闭熔断器。\n\n工具：\n\n可用 Resilience4j（Java）、Polly（.NET）、或者自研轻量熔断器。\n\n健康状态同步到注册中心，供路由器实时查阅。\n\n5. 缓存层\n节约成本、降低延迟，对相似或重复请求直接返回缓存结果。\n\n两级缓存策略：\n\nL1 精确匹配缓存：对完全相同的请求（用户输入+系统提示+参数）的响应进行缓存，TTL 根据任务调整（翻译类可较长，对话类较短）。\n\nL2 语义相似缓存：使用向量相似度（如用低维嵌入+LSH）匹配历史语义相近的问题，若相似度 > 阈值（如0.95）则直接复用答案。这需要异步生成 embedding 并存入向量数据库（如 Milvus/Redis Vector）。\n\n缓存存储：\n\n热点数据放在本地内存（Caffeine/Guava Cache），全量数据放在 Redis 或分布式缓存中，失效策略为 主动过期+LRU。\n\n对缓存命中但在召回时的请求，可打上“stale”标记，异步更新。\n\n收益：可大幅降低模型 API 调用量，减少费用并提升响应速度。\n\n6. 成本控制器\n实现预算管控与成本优化。\n\n实时计价：结合模型定价（每百万 token 价格）在请求前估算费用，决策时若预算耗尽则拒绝或降级。\n\n预算配额：可为不同业务线、应用分配每日/每月预算，通过 Redis 计数器实时扣减。\n\n最低成本路由：当路由引擎决策时，优先选择满足质量下限且成本最低的模型（例如用小模型完成简单任务）。\n\n硬止损：当消费超过设定阈值时，强制将所有请求降级到免费额度的模型或返回兜底回复。\n\n通知：预算消耗到 80% 时通过监控平台发送告警。\n\n7. 自动降级管理器\n当主模型不可用、超时或预算耗尽时，按优先级选择降级路径。\n\n降级链示例：\nGPT-4o → DeepSeek R1 → 本地部署的小模型（如Qwen-7B） → 缓存结果 → 静态兜底回复\n\n实现：\n\n降级策略配置化（在配置中心动态调整）。\n\n支持部分降级：比如仅降级部分功能（如摘要降级为截取前N句）。\n\n冷热分离：平时让本地小模型处于就绪状态（通过 docker 容器预热），以便随时接管流量。\n\n兜底回复：\n\n自定义模板，如“系统繁忙，请稍后重试”或基于规则的自动回复。\n\n8. 统一模型适配器\n为每个第三方模型实现一个适配器，封装差异，对外暴露统一接口。\n\n接口定义：\n\njava\ninterface ModelAdapter {\n    String modelName();\n    CompletableFuture<ModelResponse> predict(ModelRequest request);\n    boolean healthCheck();\n    Pricing getPricing();\n}\n适配器内部：\n\n处理认证（API Key 从配置中心拉取）、重试、超时控制。\n\n将网关标准请求转为厂商特定格式（如 OpenAI Chat Completion 格式、阿里 DashScope SDK 格式等）。\n\n统一返回格式，包含 text, tokens_used, latency, cost, trace_id 等。\n\n扩展性：新增模型只需实现该接口，通过 SPI 或依赖注入注册到路由器中。\n\n9. 观测与可观测性\n全链路可观测是保障高可用的基石。\n\n日志：结构化 JSON 日志，记录每一次请求的路由决策、模型响应、延迟、Token 消耗、成本。\n\n指标：Prometheus 拉取指标，包括 QPS、延迟分位数、缓存命中率、熔断器状态、预算消耗率等。\n\n链路追踪：在请求头注入 trace-id，通过 Jaeger/Zipkin 串联从网关到模型调用的完整链路。\n\n告警：错误率骤升、模型 API 全部熔断、预算超支等关键事件触发 PagerDuty/企业微信通知。",
+  "result": {
+    "technical_score": 9.0,
+    "technical_comment": "",
+    "logic_score": 9.0,
+    "logic_comment": "",
+    "depth_score": 9.0,
+    "depth_comment": "",
+    "communication_score": 9.0,
+    "communication_comment": "",
+    "overall_score": 9.0,
+    "summary": "",
+    "strengths": [],
+    "improvements": [],
+    "reference_answer": ""
+  },
+  "context": {
+    "profile": {
+      "summary": "负责将AI模型（大语言模型、计算机视觉、语音等）集成到产品中，设计并开发面向用户的智能应用。该岗位需兼顾算法理解与工程落地，涵盖Prompt工程、模型微调、API服务化、前后端联调等，发展方向为AI解决方案架构师或模型优化专家。",
+      "position": "AI应用开发工程师",
+      "difficulty": "mid",
+      "tech_stack": [
+        "Python 3.10+",
+        "FastAPI / Flask",
+        "LangChain / LlamaIndex",
+        "OpenAI API / 兼容API",
+        "Milvus / Pinecone / Chroma",
+        "Docker / Kubernetes",
+        "Git / CI/CD",
+        "PostgreSQL / Redis",
+        "React / Vue (可选)"
+      ],
+      "nice_to_have": [
+        "有MCP（模型上下文协议）或Function Calling开发经验",
+        "了解LangChain / LlamaIndex等编排框架",
+        "具备模型性能优化经验（如量化、蒸馏、vLLM部署）",
+        "熟悉Docker/Kubernetes，能部署高可用AI服务",
+        "有Agent开发经验（AutoGPT、CrewAI等）",
+        "了解多模态模型（如图像、语音）的调用与集成"
+      ],
+      "interview_focus": [
+        "工程落地能力：能否将模型从demo转化为稳定、可扩展的服务，处理过并发、限流、重试等生产问题",
+        "Prompt与模型理解深度：是否具备系统性优化Prompt的经验，而非只会复制常见模板",
+        "RAG与Agent实战：能否清晰阐述项目中的检索策略、工具调用流程、错误恢复机制",
+        "全栈视野：是否了解前后端交互、缓存策略、数据库选型等非AI部分，能独立完成原型开发",
+        "学习与调优能力：遇到模型效果差时，能否系统性地分析原因（数据、参数、架构）并给出方案"
+      ],
+      "required_skills": [
+        "扎实的Python编程能力，熟悉异步编程（asyncio）和常用框架（FastAPI/Flask）",
+        "熟练使用大模型API（如OpenAI、Claude、文心一言等）及RESTful接口设计",
+        "掌握Prompt工程与RAG（检索增强生成）技术，能优化模型输出质量",
+        "了解LLM微调基础（LoRA/QLoRA）及常用开源模型（LLaMA、ChatGLM等）的部署",
+        "熟悉矢量数据库（如Milvus、Pinecone）及Embedding模型的使用",
+        "具备前后端协作能力，能独立搭建前后端交互Demo（React/Vue + Python后端）"
+      ],
+      "responsibilities": [
+        "根据业务需求设计AI产品方案，完成模型选型、Prompt设计及数据准备",
+        "开发AI服务的RESTful API，确保高并发、低延迟的稳定服务",
+        "实现RAG系统：文档解析、分块、向量化存储及检索增强生成",
+        "探索并实现Agent应用（工具调用、多步推理、记忆管理等）",
+        "参与模型微调Pipeline搭建，处理训练数据并评估效果",
+        "编写技术文档，与产品、后端、测试紧密协作，推动功能上线"
+      ],
+      "years_experience": "3-5年",
+      "industry_insights": "AI应用开发是目前企业数字化转型的核心赛道，薪资涨幅显著。初级（1-2年）年薪约20-35万，中级（3-5年）约40-70万，高级（5年以上）可达80-120万+（一线城市）。市场趋势：从单纯的API调用向Agent化、多模态、端侧部署发展，具备全栈能力和模型调优经验的工程师供不应求。",
+      "common_interview_topics": [
+        "🔹问题：请设计一个基于RAG的智能问答系统，包括数据预处理、向量检索和生成环节的具体实现。（考察点：对RAG全链路理解，包括分块策略、Embedding选择、检索与排序、提示词构造）",
+        "🔹问题：你如何评估一个Prompt的质量？如果模型输出胡言乱语，你会采取哪些优化措施？（考察点：Prompt工程经验，如few-shot、CoT、自洽性、输出格式控制、温度调整）",
+        "🔹问题：解释一下Token限制、上下文窗口、KV Cache在LLM推理中的作用。（考察点：对模型底层原理的理解，是否能分析性能瓶颈）",
+        "🔹问题：你用过哪些Agent框架？请描述一个你实现的多工具调用场景，如何处理工具选择错误或超时？（考察点：Agent架构认知，重试机制、错误处理、记忆管理）",
+        "🔹问题：设计一个高并发AI API服务架构，如何控制成本（Token消耗）并保证响应速度？（考察点：工程化能力，包括缓存、流式输出、负载均衡、模型量化、预热等）",
+        "🔹问题：如何微调一个开源大模型？需要准备什么样的数据？怎么评估微调后的效果？（考察点：了解LoRA原理、数据格式（Alpaca/ShareGPT）、评估指标（BLEU/Rouge/人工））",
+        "🔹问题：你的项目中有哪些AI应用伦理或合规的考虑？比如如何防止Prompt注入？（考察点：安全意识，对输入过滤、输出审核、内容安全的理解）",
+        "🔹问题：现场写一段代码：调用OpenAI API实现一个能联网搜索并总结的Agent（假设已有搜索API）。（考察点：编程基本功、Function Calling用法、异常处理）"
+      ]
+    },
+    "hint_used": false
+  },
+  "latency_ms": 17797.0,
+  "token_count": 2801,
+  "quality": "good",
+  "corrections": null,
+  "timestamp": "2026-05-09T22:08:47.177484",
+  "reviewed": false
+}

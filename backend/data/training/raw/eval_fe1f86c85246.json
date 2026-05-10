@@ -1,0 +1,99 @@
+{
+  "id": "fe1f86c85246",
+  "type": "evaluation",
+  "round": "tech_1",
+  "question": "你的简历中提到使用 Redis Stack 做 AI 缓存，能具体讲讲你的缓存设计吗？比如：1）你缓存了哪些内容？是 LLM 的原始回复还是经过后处理的结果？2）缓存 key 如何设计以支持语义相似查询？3）当知识库数据更新时，你如何保证缓存失效或更新，避免用户拿到过时答案？4）你遇到过哪些缓存一致性问题，又是如何解决的？",
+  "answer": "1、我们缓存的是后处理结束、即将返回给用户前的那一份最终答案。也就是说，不是 LLM 的原始 token 流，也不是知识库检索后的原始片段，而是经过格式化（如 Markdown 渲染、敏感词脱敏、引用标注）之后的完整回复对象（JSON）。这样缓存命中后可以直接返回，省去整个检索+LLM推理+后处理的链路，收益最大。2、我们采用两级缓存架构，精确命中和语义近似各走一路。\n\nL1 精确缓存：\nKey 规则：cache:exact:{md5(user_id + normalized_query)}\n对同一个用户的完全相同问题（标准化后），直接返回，延迟 < 1ms。\nL2 语义缓存（基于 Redis Stack）：\n利用 Redis 的 RediSearch + 向量相似度检索 实现。\n具体做法：\n将用户的 query 通过同一个 embedding 模型实时转成向量（维度 768/1536）。\n使用 Redis 的 FT.SEARCH 命令，基于索引 idx:semantic_cache，用 KNN 查询当前 query 向量和缓存中所有问题向量的余弦相似度。\n当相似度 > 阈值（如 0.92）时，直接返回相似问题对应的缓存答案，并返回 cached: true 标志，让前端知道这是语义推荐结果。\n我们的知识库是版本化管理的。每次文档更新后，知识库版本号自增（如 v1.2.3），并发布到 Redis 的一个 config:knowledge_version 键中。\n\n失效策略：\n写入时标记：在生成缓存前，会往缓存元数据里写入这条答案所依赖的 model_version。\n查询时过滤：所有语义缓存的查询都强制携带 model_version 过滤条件（FT.SEARCH 中的 @model_version:{current_version}），这样旧版本的缓存不会被搜索到，相当于自动失效。\n惰性删除：后台任务定期扫描（或订阅数据更新事件），物理删除 model_version 不等于当前版本的陈旧键，防止内存膨胀。\n问题一：写入失败导致的“空缓存”\n由于 Redis 内存限制或网络抖动，缓存写入失败，但代码里未做回滚处理，导致前端认为缓存已经存在而实际上取不到。\n解决：改为先写再查的逻辑，只用 HSET 的返回结果判定是否写入成功，不预设一定成功；同时增加了写入重试（最多 2 次），失败时降级为直接调用 LLM，不影响服务可用性。\n\n问题二：并发写导致的“脏读”\n某个高频问题同一时刻来了多个相同请求，在缓存未命中时，它们都去调 LLM 生成答案，并同时写入缓存，有可能后调用的慢请求覆盖了先调用的快请求（但内容可能略有差异）。\n解决：引入 “约定占位 + SETNX 锁”。第一个请求写入一个临时键（cache:lock:{key}）作为锁，锁超时 5 秒；其他并发请求发现锁存在就等待 200ms 后重试读取缓存，直到缓存就绪。只有获得锁的请求才能调 LLM 并最终写入缓存，从而保证了同一 key 下的答案一致性。",
+  "result": {
+    "technical_score": 9,
+    "technical_comment": "技术方案合理且工程化程度高。采用两级缓存（精确+语义），充分利用Redis Stack的向量搜索能力，缓存最终后处理结果收益最大化。版本化失效策略（model_version过滤+惰性删除）和并发写锁（SETNX）体现了扎实的工程判断。仅有的小缺陷：语义缓存未说明是否按用户隔离（可能造成跨用户语义命中），阈值0.92偏高且无实际调优依据。但整体足以支撑生产级AI缓存。",
+    "logic_score": 9,
+    "logic_comment": "回答结构清晰，按题目四个子问题逐一展开，从设计到问题解决层层递进。对写入失败、脏读等问题的排查逻辑有明确的因果分析和解决方案，体现了良好的调试思维。",
+    "depth_score": 8,
+    "depth_comment": "主动考虑了性能（1ms精确命中、语义检索）、安全（敏感词脱敏）、可维护性（版本化、惰性删除）、降级策略（写入失败回退LLM）。对一致性问题的深入（SETNX锁+超时）表现不错，但未讨论缓存穿透、缓存雪崩等场景，深度稍欠一点。",
+    "communication_score": 8,
+    "communication_comment": "表达清晰，使用技术术语准确，细节丰富。但部分描述稍显冗长（如写入失败的解决步骤可更简洁），整体沟通效果良好。",
+    "overall_score": 9,
+    "summary": "候选人展现了优秀的AI缓存工程实践能力，方案成熟、思考全面，兼顾性能、一致性和可维护性，完全符合中级AI应用开发工程师的要求。少数细节可优化，但整体属于“很好的回答”。",
+    "strengths": [
+      "两级缓存架构设计合理，精确+语义互补，延迟收益最大化",
+      "知识库版本化配合惰性删除实现了自动缓存失效，工程简洁且安全",
+      "对并发写脏读问题使用了SETNX锁+超时降级，方案鲁棒",
+      "考虑了写入失败时的重试与降级，体现生产级容错意识"
+    ],
+    "improvements": [
+      "语义缓存应明确是否按用户ID或租户隔离，避免跨用户语义误命中",
+      "可补充缓存雪崩/击穿的保护措施（如布隆过滤器、本地缓存兜底）",
+      "阈值0.92应基于实际业务数据调优，并考虑动态阈值或分桶策略"
+    ],
+    "reference_answer": "以下是一个参考的缓存设计方案（简化版）：\n\n1. 缓存内容：存储最终返回给前端的JSON对象（含格式化文本、引用标注等），避免重复LLM推理和后处理。\n2. 缓存Key：\n   - 精确缓存：`cache:exact:{md5(normalized_query)}`（可选按用户隔离：加上user_id）\n   - 语义缓存：使用Redis Stack创建向量索引，key为`cache:semantic:{vector_id}`，通过FT.SEARCH进行KNN查询，返回相似度>阈值的问题及其答案。\n3. 失效策略：\n   - 每个缓存条目携带`knowledge_version`字段；查询时通过FT.SEARCH的过滤条件`@knowledge_version:{current_version}`排除旧数据。\n   - 后台定时任务或订阅事件删除`knowledge_version != current_version`的条目。\n4. 一致性处理：\n   - 缓存穿透：使用SETNX锁（key=cache:lock:{md5}）防并发写，锁超时5s，未获得锁的请求等待后重试读缓存。\n   - 写入失败：采用“先写后读”双重确认，写入失败降级为直接调用LLM并打日志告警。\n```python\n# 伪代码示意\nimport hashlib, time, redis\nr = redis.Redis()\n\ndef get_cache(normalized_query, user_id, current_version):\n    exact_key = f\"cache:exact:{hashlib.md5(normalized_query.encode()).hexdigest()}\"\n    # 精确命中\n    if r.exists(exact_key):\n        return r.get(exact_key)\n    # 语义命中\n    query_vec = embed(normalized_query)\n    result = r.ft(\"idx:semantic\").search(\n        f\"@knowledge_version:{current_version} => [KNN 1 @vector $vec AS score]\",\n        query_params={\"vec\": query_vec.tolist()}\n    )\n    if result.total and result.docs[0].score > 0.92:\n        return result.docs[0].answer\n    return None\n\ndef set_cache(normalized_query, answer, current_version):\n    lock_key = f\"cache:lock:{hashlib.md5(normalized_query.encode()).hexdigest()}\"\n    if r.setnx(lock_key, 1):\n        r.expire(lock_key, 5)\n        # 写入精确缓存和语义缓存...\n        try:\n            r.set(exact_key, answer)\n            # 写入向量索引...\n        finally:\n            r.delete(lock_key)\n    else:\n        time.sleep(0.2)\n        return get_cache(normalized_query, current_version)\n```"
+  },
+  "context": {
+    "profile": {
+      "summary": "负责将AI模型（大语言模型、计算机视觉、语音等）集成到产品中，设计并开发面向用户的智能应用。该岗位需兼顾算法理解与工程落地，涵盖Prompt工程、模型微调、API服务化、前后端联调等，发展方向为AI解决方案架构师或模型优化专家。",
+      "position": "AI应用开发工程师",
+      "difficulty": "mid",
+      "tech_stack": [
+        "Python 3.10+",
+        "FastAPI / Flask",
+        "LangChain / LlamaIndex",
+        "OpenAI API / 兼容API",
+        "Milvus / Pinecone / Chroma",
+        "Docker / Kubernetes",
+        "Git / CI/CD",
+        "PostgreSQL / Redis",
+        "React / Vue (可选)"
+      ],
+      "nice_to_have": [
+        "有MCP（模型上下文协议）或Function Calling开发经验",
+        "了解LangChain / LlamaIndex等编排框架",
+        "具备模型性能优化经验（如量化、蒸馏、vLLM部署）",
+        "熟悉Docker/Kubernetes，能部署高可用AI服务",
+        "有Agent开发经验（AutoGPT、CrewAI等）",
+        "了解多模态模型（如图像、语音）的调用与集成"
+      ],
+      "interview_focus": [
+        "工程落地能力：能否将模型从demo转化为稳定、可扩展的服务，处理过并发、限流、重试等生产问题",
+        "Prompt与模型理解深度：是否具备系统性优化Prompt的经验，而非只会复制常见模板",
+        "RAG与Agent实战：能否清晰阐述项目中的检索策略、工具调用流程、错误恢复机制",
+        "全栈视野：是否了解前后端交互、缓存策略、数据库选型等非AI部分，能独立完成原型开发",
+        "学习与调优能力：遇到模型效果差时，能否系统性地分析原因（数据、参数、架构）并给出方案"
+      ],
+      "required_skills": [
+        "扎实的Python编程能力，熟悉异步编程（asyncio）和常用框架（FastAPI/Flask）",
+        "熟练使用大模型API（如OpenAI、Claude、文心一言等）及RESTful接口设计",
+        "掌握Prompt工程与RAG（检索增强生成）技术，能优化模型输出质量",
+        "了解LLM微调基础（LoRA/QLoRA）及常用开源模型（LLaMA、ChatGLM等）的部署",
+        "熟悉矢量数据库（如Milvus、Pinecone）及Embedding模型的使用",
+        "具备前后端协作能力，能独立搭建前后端交互Demo（React/Vue + Python后端）"
+      ],
+      "responsibilities": [
+        "根据业务需求设计AI产品方案，完成模型选型、Prompt设计及数据准备",
+        "开发AI服务的RESTful API，确保高并发、低延迟的稳定服务",
+        "实现RAG系统：文档解析、分块、向量化存储及检索增强生成",
+        "探索并实现Agent应用（工具调用、多步推理、记忆管理等）",
+        "参与模型微调Pipeline搭建，处理训练数据并评估效果",
+        "编写技术文档，与产品、后端、测试紧密协作，推动功能上线"
+      ],
+      "years_experience": "3-5年",
+      "industry_insights": "AI应用开发是目前企业数字化转型的核心赛道，薪资涨幅显著。初级（1-2年）年薪约20-35万，中级（3-5年）约40-70万，高级（5年以上）可达80-120万+（一线城市）。市场趋势：从单纯的API调用向Agent化、多模态、端侧部署发展，具备全栈能力和模型调优经验的工程师供不应求。",
+      "common_interview_topics": [
+        "🔹问题：请设计一个基于RAG的智能问答系统，包括数据预处理、向量检索和生成环节的具体实现。（考察点：对RAG全链路理解，包括分块策略、Embedding选择、检索与排序、提示词构造）",
+        "🔹问题：你如何评估一个Prompt的质量？如果模型输出胡言乱语，你会采取哪些优化措施？（考察点：Prompt工程经验，如few-shot、CoT、自洽性、输出格式控制、温度调整）",
+        "🔹问题：解释一下Token限制、上下文窗口、KV Cache在LLM推理中的作用。（考察点：对模型底层原理的理解，是否能分析性能瓶颈）",
+        "🔹问题：你用过哪些Agent框架？请描述一个你实现的多工具调用场景，如何处理工具选择错误或超时？（考察点：Agent架构认知，重试机制、错误处理、记忆管理）",
+        "🔹问题：设计一个高并发AI API服务架构，如何控制成本（Token消耗）并保证响应速度？（考察点：工程化能力，包括缓存、流式输出、负载均衡、模型量化、预热等）",
+        "🔹问题：如何微调一个开源大模型？需要准备什么样的数据？怎么评估微调后的效果？（考察点：了解LoRA原理、数据格式（Alpaca/ShareGPT）、评估指标（BLEU/Rouge/人工））",
+        "🔹问题：你的项目中有哪些AI应用伦理或合规的考虑？比如如何防止Prompt注入？（考察点：安全意识，对输入过滤、输出审核、内容安全的理解）",
+        "🔹问题：现场写一段代码：调用OpenAI API实现一个能联网搜索并总结的Agent（假设已有搜索API）。（考察点：编程基本功、Function Calling用法、异常处理）"
+      ]
+    },
+    "hint_used": false
+  },
+  "latency_ms": 33375.0,
+  "token_count": 3081,
+  "quality": null,
+  "corrections": null,
+  "timestamp": "2026-05-09T22:57:41.991245",
+  "reviewed": false
+}

@@ -6,7 +6,7 @@
 
 ```
 frontend/
-├── index.html              — HTML 骨架（仅结构，不包含 style/script）
+├── index.html              — HTML 骨架（7 Tab 页面）
 ├── css/
 │   └── style.css           — 全部样式
 └── js/
@@ -16,7 +16,12 @@ frontend/
     ├── interview.js        — 面试流程（开始→出题→提交→评估→结束→报告）
     ├── research.js         — 岗位画像搜索 + 结果渲染
     ├── history.js          — 历史记录 + Chart.js 图表 + 统计摘要
-    └── settings.js         — API Key 保存 + 提供商切换
+    ├── favorites.js        — 题目收藏管理
+    ├── custom.js           — 自定义题目 CRUD
+    ├── settings.js         — API Key 加密存储、Qwen 模型配置、提供商切换
+    ├── auth.js             — 用户认证（邮箱验证码登录）
+    ├── feedback.js         — 评分反馈（👍/👎 点踩、修正数据提交）
+    └── finetune.js         — 训练数据展示（统计、过滤、浏览）
 ```
 
 ### 依赖关系
@@ -25,7 +30,12 @@ frontend/
 utils.js  ←──  api.js  ←──  app.js  ←──  interview.js
                                         research.js
                                         history.js  (依赖 Chart.js CDN)
+                                        favorites.js
+                                        custom.js
                                         settings.js
+                                        auth.js
+                                        feedback.js
+                                        finetune.js
 ```
 
 ### 命名空间
@@ -42,11 +52,16 @@ window.MockMate = window.MockMate || {};
 
 - `MockMate.Utils` — 工具函数
 - `MockMate.API` — HTTP 请求
+- `MockMate.Auth` — 用户认证（邮箱验证码登录）
 - `MockMate.App` — 主控制器
 - `MockMate.Interview` — 面试逻辑
 - `MockMate.Research` — 岗位研究
 - `MockMate.History` — 历史记录 & 图表
-- `MockMate.Settings` — 设置
+- `MockMate.Favorites` — 题目收藏
+- `MockMate.Custom` — 自定义题目
+- `MockMate.Settings` — 设置（API Key + 模型配置）
+- `MockMate.Feedback` — 评分反馈
+- `MockMate.Finetune` — 训练数据管理
 
 ### HTML 加载顺序
 
@@ -63,7 +78,12 @@ window.MockMate = window.MockMate || {};
 <script src="js/interview.js"></script>
 <script src="js/research.js"></script>
 <script src="js/history.js"></script>
+<script src="js/favorites.js"></script>
+<script src="js/custom.js"></script>
 <script src="js/settings.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/feedback.js"></script>
+<script src="js/finetune.js"></script>
 ```
 
 所有模块在 `DOMContentLoaded` 时通过 `MockMate.init()` 统一初始化。
@@ -73,11 +93,14 @@ window.MockMate = window.MockMate || {};
 ## Tab 系统
 
 ```javascript
-// 4 个 Tab
+// 7 个 Tab
 "setup"       → 准备面试（填信息+选轮次+开始面试）
 "interview"   → 模拟面试（出题+回答+评分）
 "history"     → 历史记录（统计+图表+查看过往面试）
-"settings"    → 设置（API Key + 提供商切换）
+"favorites"   → 题目收藏
+"custom"      → 自定义题目
+"finetune"    → 训练数据管理
+"settings"    → 设置（API Key + 提供商切换 + 模型配置）
 
 // 切换逻辑在 app.js 中
 MockMate.switchTab(name) → 切换 active class
@@ -168,11 +191,22 @@ MockMate.state = {
   interviewStartTime:   null,    // 面试开始时间戳
   timerInterval:        null,    // 计时器句柄
   isWrittenRound:       false,   // 是否为笔试轮次
+  currentRound:         null,    // 当前轮次
   totalQuestions:       0,       // 总题数
   currentProfile:       null,    // 当前岗位画像
   countdownInterval:    null,    // 倒计时句柄
   countdownRemaining:   0,       // 倒计时剩余秒数
   countdownPaused:      false,   // 倒计时是否暂停
+  drafts:               {},      // 草稿缓存 { "sessionId_qIndex": "text" }
+  suspendedQuestions:   [],      // 跳过/暂挂的题目
+  _apiKeys: {                    // API Key 内存缓存
+    mimo_api_key: '',
+    deepseek_api_key: '',
+    qwen_api_key: '',
+    provider: 'mimo',
+  },
+  _enableTts:           true,    // 语音播报开关
+  _selectedCustomIds:   [],      // 已选的自定义题目 ID
 };
 ```
 
@@ -206,6 +240,25 @@ MockMate.state = {
 | history | `H.renderRadarChart()` | 查看详情 | Chart.js 雷达图 |
 | settings | `S.saveMimoKey()` | 点击保存 | 更新 MiMo API Key |
 | settings | `S.saveDeepseekKey()` | 点击保存 | 更新 DeepSeek API Key |
+| settings | `S.saveQwenKey()` | 点击保存 | 更新 Qwen API Key |
+| settings | `S.switchProvider()` | 下拉选择 | 切换 AI 提供商 |
+| settings | `S.toggleTts()` | 开关切换 | 开启/关闭语音播报 |
+| settings | `S.updateTtsProviderInfo()` | 提供商切换 | 显示 TTS 状态 |
+| settings | `saveQwenModel()` | 点击保存 | 配置 Qwen 推理/对话/判卷模型 |
+| favorites | `F.loadList()` | 切换到收藏 Tab | 加载收藏列表 |
+| favorites | `F.addFavorite()` | 点击"收藏" | 收藏当前题目 |
+| favorites | `F.deleteFavorite(id)` | 点击"取消收藏" | 删除收藏 |
+| custom | `C.loadList()` | 切换到自定义 Tab | 加载自定义题目列表 |
+| custom | `C.saveQuestion()` | 提交表单 | 创建/更新自定义题目 |
+| custom | `C.deleteQuestion(id)` | 点击删除 | 删除自定义题目 |
+| feedback | `F.submitFeedback(sid, qIdx, isGood)` | 点击 👍/👎 | 提交评分反馈 |
+| feedback | `F.submitFix(sid, qIdx, fixed)` | 点踩后提交 | 提交修正内容 |
+| finetune | `FT.loadStats()` | 切换到微调 Tab | 加载训练数据统计 |
+| finetune | `FT.loadRecords()` | 点击刷新/过滤 | 加载训练数据列表 |
+| auth | `A.checkAuth()` | 页面加载 | 检查登录状态 |
+| auth | `A.login(email)` | 提交邮箱 | 发送验证码 |
+| auth | `A.verify(email, code)` | 提交验证码 | 验证登录 |
+| auth | `A.logout()` | 点击"退出" | 退出登录 |
 
 ---
 
@@ -268,7 +321,7 @@ IDLE → STARTING → QUESTION → ANSWERING → EVALUATING → QUESTION (循环
 | 快捷键 | 功能 |
 |--------|------|
 | `Ctrl+Enter` | 提交回答 |
-| `Alt+1/2/3/4` | 切换 Tab |
+| `Alt+1/2/3/4/5/6/7` | 切换 Tab |
 | `Escape` | 关闭 toast / 聚焦回答输入框 |
 
 ---

@@ -9,7 +9,26 @@
 
 ---
 
-## [2026-05-09] — 训练数据采集系统 + 多项优化
+## [2026-05-10] — 通义千问支持 + 题库预生成 + TTS 优化
+
+### ✨ 新功能
+- **通义千问 (Qwen) 作为第三 AI 提供商**：支持推理出题、对话、图片识别（qwen-vl-plus）、语音合成（CosyVoice），自动 fallback 到 MiMo/DeepSeek
+- **千问模型可配置**：设置页支持分别配置推理模型、对话模型、判卷模型、TTS 模型，留空使用默认值（qwen-plus / qwen-turbo / cosyvoice-v1）
+- **预生成题库 (QuestionPool)**：面试时后台并行预生成 easy/medium/hard 三类题目到池中，出题从池中 pop（毫秒级），消除 30s 串行出题等待；严格上限（总题数+4），盈余缓存复用
+- **TTS 实时开关**：面试标题栏增加 🔊/🔇 按钮，可随时切换语音播报，关闭时折叠为"播放本题语音"按钮
+- **TTS 提供商自适应**：切换到 DeepSeek 时自动禁用语音开关并提示"不支持语音"
+- **千问模型请求头传递**：浏览器 localStorage 中的模型配置通过 HTTP 请求头发送到后端，无需后端重启
+
+### 🐛 Bug 修复
+- **状态指示器只认 MiMo**：左上角状态灯只检查 mimo_ready/deepseek_ready，忽略 qwen_ready，导致千问可用时仍显示黄色"未完全配置"
+- **简历评分 JSON 换行符**：AI 输出 JSON 字符串内的真实换行符导致 json.loads 报错，添加 `_repair_json_newlines` 修复
+
+### 🔧 优化
+- **语音播报优化**：mid-interview 实时开关（通过 enable_tts 参数同步后端）、面试页 TTS 指示器、设置页显示当前语音提供商
+- **千问模型默认值**：config.py 新增 QWEN_MODEL_REASONER / QWEN_MODEL_CHAT / QWEN_MODEL_WRITTEN_EVAL / QWEN_MODEL_TTS 可配置
+- **状态指示器**：改为按前端选中提供商判断，更准确反映用户实际配置状态
+
+---
 
 ### ✨ 新功能
 - **训练数据采集模块** (`finetune/`)：自动记录每次 AI 评分结果，包括题目、回答、评分、延迟和 token 用量

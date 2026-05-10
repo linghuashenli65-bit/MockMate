@@ -138,6 +138,7 @@
         <span style="font-size:13px;color:var(--text2)" id="questionCount">第 0 题</span>
         <span style="font-size:12px;color:var(--accent2);background:var(--surface2);padding:2px 10px;border-radius:4px" id="roundLabel"></span>
         <span style="font-size:13px;color:var(--text2)"><span id="interviewTimer">00:00</span></span>
+        <span id="ttsToggle" style="font-size:12px;cursor:pointer;padding:2px 8px;border-radius:4px;border:1px solid var(--border);user-select:none" onclick="MockMate.Interview.toggleTts()" title="点击切换语音播报">🔊 语音开</span>
         <button class="btn btn-danger btn-sm" id="endInterviewBtn">结束面试</button>
       </div>
       <div class="interview-area" id="interviewArea">
@@ -221,6 +222,7 @@
         <select id="providerSelect">
           <option value="mimo">MiMo API</option>
           <option value="deepseek">DeepSeek API</option>
+          <option value="qwen">通义千问 (Qwen)</option>
         </select>
       </div>
     </div>
@@ -245,6 +247,54 @@
       </div>
       <div style="font-size:12px;color:var(--text2)">
         DeepSeek 支持：推理出题、对话（不支持图片识别和语音）
+      </div>
+      <div class="setting-row" style="margin-top:16px">
+        <label>Qwen API Key</label>
+        <input type="password" id="qwenKeyInput" placeholder="输入通义千问 API Key">
+        <button class="btn btn-primary btn-sm" id="saveQwenKey">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>推理模型</label>
+        <input type="text" id="qwenReasonerModelInput" placeholder="qwen-plus" style="flex:1;font-family:monospace">
+        <button class="btn btn-primary btn-sm" id="saveQwenReasonerModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>对话模型</label>
+        <input type="text" id="qwenChatModelInput" placeholder="qwen-plus" style="flex:1;font-family:monospace">
+        <button class="btn btn-primary btn-sm" id="saveQwenChatModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>判卷模型</label>
+        <input type="text" id="qwenWrittenEvalModelInput" placeholder="qwen-turbo" style="flex:1;font-family:monospace">
+        <button class="btn btn-primary btn-sm" id="saveQwenWrittenEvalModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>TTS 模型</label>
+        <input type="text" id="qwenTtsModelInput" placeholder="cosyvoice-v1" style="flex:1;font-family:monospace">
+        <button class="btn btn-primary btn-sm" id="saveQwenTtsModel">保存</button>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">
+        通义千问支持：推理出题、对话、图片识别、语音合成<br>
+        留空则使用默认模型：推理/对话 = qwen-plus，判卷 = qwen-turbo，TTS = cosyvoice-v1<br>
+        常见模型：qwen-max、qwen-plus、qwen-turbo、deepseek-r1、qwq-32b<br>
+        去 <a href="https://help.aliyun.com/zh/model-studio/getting-started/first-api-call-to-qwen" target="_blank" style="color:var(--accent2)">阿里云 Model Studio</a> 获取 API Key
+      </div>
+    </div>
+    <div class="card">
+      <h2>语音设置</h2>
+      <div class="setting-row">
+        <label>语音播报</label>
+        <label class="switch">
+          <input type="checkbox" id="enableTtsToggle" checked>
+          <span class="slider"></span>
+        </label>
+        <span style="font-size:13px;color:var(--text2)" id="enableTtsLabel">开启</span>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">
+        关闭后面试将不生成语音，仅显示文字
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:8px;padding:8px;background:var(--surface2);border-radius:6px" id="ttsProviderInfo">
+        语音合成：<span id="ttsProviderName">-</span>
       </div>
     </div>
   </div>

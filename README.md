@@ -39,12 +39,13 @@ pip install -r requirements.txt
 
 ### 配置 API Key
 
-MockMate 支持两个 AI 提供商（可在网页端运行时切换）：
+MockMate 支持三个 AI 提供商（可在网页端运行时切换）：
 
 | 提供商 | 支持能力 | 申请地址 |
 |--------|---------|---------|
 | **MiMo**（小米） | 推理出题、简历图片识别、语音合成 | [https://100t.xiaomimimo.com](https://100t.xiaomimimo.com) |
 | **DeepSeek** | 推理出题、对话（不支持图片和语音） | [https://platform.deepseek.com](https://platform.deepseek.com) |
+| **通义千问 (Qwen)** | 推理出题、对话、图片识别（vl）、语音合成（CosyVoice） | [https://help.aliyun.com/zh/model-studio](https://help.aliyun.com/zh/model-studio) |
 
 配置方式（二选一）：
 
@@ -84,10 +85,10 @@ python run.py    # 直接运行
                 │  ┌─────────┐  ┌──────────────────┐  │
                 │  │ 网页搜索  │  │  统一 AI 客户端   │  │
                 │  │web_resea│  │  ai_client        │──│──▶ HTTP API
-                │  │ rch.py  │  │  ┌─────┐ ┌──────┐│  │
-                │  └─────────┘  │  │MiMo │ │Deep  ││  │
-                │       │       │  │Cli  │ │Seek  ││  │
-                │       ▼       │  └─────┘ └──────┘│  │
+                │  │ rch.py  │  │  ┌─────┐ ┌──────┐ ┌──────┐│  │
+                │  └─────────┘  │  │MiMo │ │Deep  │ │Qwen  ││  │
+                │       │       │  │Cli  │ │Seek  │ │Cli   ││  │
+                │       ▼       │  └─────┘ └──────┘ └──────┘│  │
                 │  ┌─────────┐  └──────────────────┘  │
                 │  │ 数据库    │       │               │
                 │  │database │       ▼               │
@@ -104,15 +105,17 @@ python run.py    # 直接运行
 |------|------|------|
 | **入口** | `run.py` | 启动入口 |
 | **Web 服务** | `backend/main.py` | FastAPI 应用，路由注册，全局实例管理 |
-| **AI 客户端** | `backend/ai_client.py` | 统一接口，双提供商自动路由和 fallback |
+| **AI 客户端** | `backend/ai_client.py` | 统一接口，三提供商自动路由和 fallback |
 | **MiMo 客户端** | `backend/mimoclient.py` | 小米 MiMo API 封装（推理、多模态、TTS） |
 | **DeepSeek 客户端** | `backend/deepseek_client.py` | DeepSeek API 封装（推理、对话） |
+| **Qwen 客户端** | `backend/qwen_client.py` | 通义千问 API 封装（推理、对话、多模态、TTS） |
 | **面试引擎** | `backend/interview_engine.py` | 出题、评分、报告生成的 Prompt 编排 |
 | **网页搜索** | `backend/web_research.py` | 多引擎并行搜索 + AI 整合成岗位画像 |
-| **语音合成** | `backend/tts.py` | 文字转语音 MP3 |
+| **语音合成** | `backend/tts.py` | 文字转语音 WAV |
 | **数据持久化** | `backend/database.py` | MySQL / JSON 文件双模式存储（会话、缓存、搜索历史） |
 | **配置** | `backend/config.py` | 环境变量和常量配置 |
-| **前端** | `frontend/` | 模块化 SPA（7 个 JS 模块 + 独立 CSS） |
+| **训练数据** | `backend/finetune/` | 训练数据采集、管理、LoRA 微调准备 |
+| **前端** | `frontend/` | 模块化 SPA（10 个 JS 模块 + 独立 CSS） |
 
 ---
 
@@ -131,6 +134,7 @@ python run.py    # 直接运行
   "provider": "mimo",
   "mimo_ready": false,
   "deepseek_ready": false,
+  "qwen_ready": false,
   "db": "json",
   "cache": { "total": 0, "valid": 0, "expired": 0 }
 }
@@ -207,16 +211,16 @@ AI 分析简历文本，提取技能、经验、项目。
 
 ```json
 // 请求（普通模式）
-{ "resume": "简历内容...", "position": "Python后端开发", "company": "字节跳动", "profile": {}, "round": "tech_1" }
+{ "resume": "简历内容...", "position": "Python后端开发", "company": "字节跳动", "profile": {}, "round": "tech_1", "enable_tts": true }
 // 请求（自定义题目模式）
-{ "resume": "...", "position": "...", "round": "tech_1", "custom_question_ids": [1, 2, 3] }
+{ "resume": "...", "position": "...", "round": "tech_1", "custom_question_ids": [1, 2, 3], "enable_tts": true }
 // 响应
 {
   "session_id": "a1b2c3d4e5f6",
   "question": { "question": "题目内容", "type": "技术", "difficulty": "medium", "topic": "项目经验", "expected_points": [...] },
   "question_index": 0,
   "round": "tech_1",
-  "audio_url": "/api/audio/a1b2c3d4e5f6_q000.mp3"
+  "audio_url": "/api/audio/a1b2c3d4e5f6_q000.wav"
 }
 ```
 
@@ -241,7 +245,7 @@ AI 分析简历文本，提取技能、经验、项目。
   },
   "next_question": { "question": "下一题...", ... },
   "next_index": 1,
-  "audio_url": "/api/audio/a1b2c3d4e5f6_q001.mp3"
+  "audio_url": "/api/audio/a1b2c3d4e5f6_q001.wav"
 }
 ```
 
@@ -311,7 +315,7 @@ AI 分析简历文本，提取技能、经验、项目。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/audio/{filename}` | 获取语音文件（MP3） |
+| GET | `/api/audio/{filename}` | 获取语音文件（WAV） |
 | GET | `/api/history` | 列出所有面试记录（含各维度分数、薄弱点） |
 | DELETE | `/api/history/{session_id}` | 删除指定记录 |
 | GET | `/api/cache/stats` | 缓存统计 |
@@ -344,7 +348,10 @@ MockMate/
 │       ├── history.js          # 历史记录 + Chart.js 图表（多维度趋势、薄弱点分析）
 │       ├── favorites.js        # 题目收藏管理
 │       ├── custom.js           # 自定义题目 CRUD
-│       └── settings.js         # API Key 配置
+│       ├── settings.js         # API Key 配置
+│       ├── auth.js             # 用户认证（邮箱验证码登录）
+│       ├── feedback.js         # 评分反馈（👍/👎 点踩与修正）
+│       └── finetune.js         # 训练数据展示与管理
 └── backend/
     ├── __init__.py
     ├── config.py               # 配置（API Key、端口、模型名称）
@@ -352,13 +359,18 @@ MockMate/
     ├── ai_client.py            # 统一 AI 客户端接口
     ├── mimoclient.py           # MiMo API 客户端（异步）
     ├── deepseek_client.py      # DeepSeek API 客户端（异步）
+    ├── qwen_client.py          # 通义千问 API 客户端（异步）
     ├── interview_engine.py     # 面试引擎（出题、评分、报告）
     ├── web_research.py         # 网络搜索 + 岗位画像生成
     ├── tts.py                  # 语音合成
     ├── database.py             # 数据持久化（MySQL / JSON 回退）
+    ├── auth.py                 # 用户认证逻辑
+    ├── finetune/               # 训练数据模块
+    │   ├── collector.py        # 数据采集
+    │   └── manager.py          # 数据管理（查询、统计、导出）
     └── data/                   # 运行时数据（自动创建）
         ├── sessions/           # 面试会话 JSON
-        ├── audios/             # 语音 MP3 文件
+        ├── audios/             # 语音 WAV 文件
         └── mockmate.log        # 运行日志
 ```
 
@@ -372,7 +384,21 @@ MockMate/
 |------|--------|------|
 | `MIMO_API_KEY` | 空 | 小米 MiMo API Key |
 | `DEEPSEEK_API_KEY` | 空 | DeepSeek API Key |
+| `QWEN_API_KEY` | 空 | 通义千问 API Key |
 | `AI_PROVIDER` | `mimo` | 默认 AI 提供商 |
+| `ALLOW_SHARED_API_KEY` | `false` | 是否允许未配 Key 的用户回退使用全局 Key |
+
+### 模型配置
+
+通义千问支持在设置页分别配置各用途模型，也可通过环境变量设置默认值：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `QWEN_MODEL` | `qwen-plus` | 通用模型（fallback） |
+| `QWEN_MODEL_REASONER` | `qwen-plus` | 推理出题模型 |
+| `QWEN_MODEL_CHAT` | `qwen-plus` | 对话模型 |
+| `QWEN_MODEL_WRITTEN_EVAL` | `qwen-turbo` | 笔试判卷模型 |
+| `QWEN_MODEL_TTS` | `cosyvoice-v1` | 语音合成模型 |
 
 ### 服务配置 (`backend/config.py`)
 
@@ -449,12 +475,13 @@ MockMate/
 | 层级 | 技术 |
 |------|------|
 | 后端框架 | FastAPI + uvicorn |
-| AI 推理 | MiMo API / DeepSeek API |
+| AI 推理 | MiMo API / DeepSeek API / 通义千问 (Qwen) |
 | 网页搜索 | Bing + DuckDuckGo（自动 fallback）|
-| 图片识别 | MiMo 多模态 API |
-| 语音合成 | MiMo TTS |
+| 图片识别 | MiMo 多模态 / Qwen-VL |
+| 语音合成 | MiMo TTS / Qwen CosyVoice |
+| 模型微调 | PEFT + LoRA (开发中) |
 | 数据存储 | MySQL / JSON 文件双模式 |
-| 前端 | 原生 JS SPA（9 模块化文件 + Chart.js 图表） |
+| 前端 | 原生 JS SPA（10 模块化文件 + Chart.js 图表） |
 | 图表库 | Chart.js v4（CDN 引入） |
 | 语音识别 | Web Speech API（Chrome 浏览器语音输入） |
 | 依赖管理 | pip + requirements.txt |

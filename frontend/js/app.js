@@ -25,6 +25,7 @@ window.MockMate = window.MockMate || {};
     _apiKeys: {              // API Key 内存缓存（解密后的明文）
       mimo_api_key: '',
       deepseek_api_key: '',
+      qwen_api_key: '',
       provider: 'mimo',
     },
   };
@@ -57,15 +58,26 @@ window.MockMate = window.MockMate || {};
       var s = await M.API.get('/api/status');
       var dot = document.getElementById('statusDot');
       var txt = document.getElementById('statusText');
+      var keys = M.state._apiKeys || {};
+      var selected = keys.provider || 'mimo';
 
-      if (s.provider === 'mimo' && s.mimo_ready) {
-        dot.className = 'dot green'; txt.textContent = 'MiMo 已连接';
-      } else if (s.provider === 'deepseek' && s.deepseek_ready) {
-        dot.className = 'dot green'; txt.textContent = 'DeepSeek 已连接';
-      } else if (s.mimo_ready || s.deepseek_ready) {
-        dot.className = 'dot yellow'; txt.textContent = '未完全配置';
+      console.log('[Status]', JSON.stringify(s), 'selected=', selected, 'qwen_key=', !!keys.qwen_api_key);
+
+      // 按用户选择的提供商判断
+      var readyMap = { mimo: s.mimo_ready, deepseek: s.deepseek_ready, qwen: s.qwen_ready };
+      var nameMap = { mimo: 'MiMo', deepseek: 'DeepSeek', qwen: '通义千问' };
+
+      if (readyMap[selected]) {
+        dot.className = 'dot green';
+        txt.textContent = (nameMap[selected] || selected) + ' 已连接';
+      } else if (s.qwen_ready || s.mimo_ready || s.deepseek_ready) {
+        dot.className = 'dot yellow';
+        // 显示哪个就绪但未选中
+        var altProvider = s.qwen_ready ? '通义千问' : (s.mimo_ready ? 'MiMo' : 'DeepSeek');
+        txt.textContent = (nameMap[selected] || selected) + ' 未就绪（' + altProvider + ' 可用）';
       } else {
-        dot.className = 'dot red'; txt.textContent = '未配置 API';
+        dot.className = 'dot red';
+        txt.textContent = '未配置 API';
       }
 
       var sel = document.getElementById('providerSelect');

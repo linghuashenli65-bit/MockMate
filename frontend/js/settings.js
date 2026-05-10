@@ -12,9 +12,21 @@ window.MockMate = window.MockMate || {};
   S.init = function () {
     document.getElementById('saveMimoKey').addEventListener('click', S.saveMimoKey);
     document.getElementById('saveDeepseekKey').addEventListener('click', S.saveDeepseekKey);
+    document.getElementById('saveQwenKey').addEventListener('click', S.saveQwenKey);
+    document.getElementById('saveQwenReasonerModel').addEventListener('click', S.saveQwenReasonerModel);
+    document.getElementById('saveQwenChatModel').addEventListener('click', S.saveQwenChatModel);
+    document.getElementById('saveQwenWrittenEvalModel').addEventListener('click', S.saveQwenWrittenEvalModel);
+    document.getElementById('saveQwenTtsModel').addEventListener('click', S.saveQwenTtsModel);
     document.getElementById('providerSelect').addEventListener('change', S.switchProvider);
+    document.getElementById('enableTtsToggle').addEventListener('change', S.toggleTts);
     // 页面加载时恢复已存储的 Key（显示占位符）
     S.restoreKeyInputs();
+    S.restoreTtsToggle();
+    S.restoreQwenReasonerModel();
+    S.restoreQwenChatModel();
+    S.restoreQwenWrittenEvalModel();
+    S.restoreQwenTtsModel();
+    S.updateTtsProviderInfo();
   };
 
   // ---- 恢复 Key 输入框状态 ----
@@ -25,6 +37,9 @@ window.MockMate = window.MockMate || {};
     }
     if (keys.deepseek_api_key) {
       document.getElementById('deepseekKeyInput').placeholder = '已保存（点击修改）';
+    }
+    if (keys.qwen_api_key) {
+      document.getElementById('qwenKeyInput').placeholder = '已保存（点击修改）';
     }
     if (keys.provider) {
       var sel = document.getElementById('providerSelect');
@@ -77,13 +92,162 @@ window.MockMate = window.MockMate || {};
     M.setBtnLoading(btn, false, '保存');
   };
 
+  // ---- 保存 Qwen Key ----
+  S.saveQwenKey = async function () {
+    var key = document.getElementById('qwenKeyInput').value.trim();
+    if (!key) { M.toast('请输入通义千问 API Key'); return; }
+
+    var btn = document.getElementById('saveQwenKey');
+    M.setBtnLoading(btn, true, '保存中...');
+
+    try {
+      await M.Crypto.saveAllApiKeys(null, { qwen_api_key: key });
+      M.state._apiKeys.qwen_api_key = key;
+      document.getElementById('qwenKeyInput').value = '';
+      document.getElementById('qwenKeyInput').placeholder = '已保存（点击修改）';
+      M.toast('Qwen API Key 已保存到浏览器');
+      await M.checkStatus();
+    } catch(e) {
+      M.toast('保存失败: ' + e.message);
+    }
+    M.setBtnLoading(btn, false, '保存');
+  };
+
+  // ---- 保存 Qwen TTS 模型名 ----
+  S.saveQwenTtsModel = function () {
+    var model = document.getElementById('qwenTtsModelInput').value.trim();
+    if (!model) {
+      M.ls.remove('qwen_tts_model');
+      M.toast('已重置为默认模型 (cosyvoice-v1)');
+    } else {
+      M.ls.set('qwen_tts_model', model);
+      M.toast('Qwen TTS 模型已设置为 ' + model);
+    }
+    document.getElementById('qwenTtsModelInput').value = '';
+    document.getElementById('qwenTtsModelInput').placeholder = model || 'cosyvoice-v1';
+  };
+
+  S.restoreQwenTtsModel = function () {
+    var model = M.ls.get('qwen_tts_model', '');
+    if (model) {
+      document.getElementById('qwenTtsModelInput').placeholder = model;
+    }
+  };
+
+  // ---- 保存 Qwen 推理/对话/判卷模型名 ----
+  function saveQwenModel(inputId, storageKey, defaultName) {
+    var model = document.getElementById(inputId).value.trim();
+    if (!model) {
+      M.ls.remove(storageKey);
+      M.toast('已重置为默认模型 (' + defaultName + ')');
+    } else {
+      M.ls.set(storageKey, model);
+      M.toast('Qwen 模型已设置为 ' + model);
+    }
+    document.getElementById(inputId).value = '';
+    document.getElementById(inputId).placeholder = model || defaultName;
+  }
+
+  function restoreQwenModel(inputId, storageKey, defaultName) {
+    var model = M.ls.get(storageKey, '');
+    if (model) {
+      document.getElementById(inputId).placeholder = model;
+    }
+  }
+
+  S.saveQwenReasonerModel = function () {
+    saveQwenModel('qwenReasonerModelInput', 'qwen_reasoner_model', 'qwen-plus');
+  };
+  S.saveQwenChatModel = function () {
+    saveQwenModel('qwenChatModelInput', 'qwen_chat_model', 'qwen-plus');
+  };
+  S.saveQwenWrittenEvalModel = function () {
+    saveQwenModel('qwenWrittenEvalModelInput', 'qwen_written_eval_model', 'qwen-turbo');
+  };
+
+  S.restoreQwenReasonerModel = function () {
+    restoreQwenModel('qwenReasonerModelInput', 'qwen_reasoner_model', 'qwen-plus');
+  };
+  S.restoreQwenChatModel = function () {
+    restoreQwenModel('qwenChatModelInput', 'qwen_chat_model', 'qwen-plus');
+  };
+  S.restoreQwenWrittenEvalModel = function () {
+    restoreQwenModel('qwenWrittenEvalModelInput', 'qwen_written_eval_model', 'qwen-turbo');
+  };
+
+  // ---- 语音播报开关 ----
+  S.restoreTtsToggle = function () {
+    var enabled = localStorage.getItem('mockmate_enable_tts');
+    if (enabled === null) enabled = 'true';  // 默认开启
+    document.getElementById('enableTtsToggle').checked = enabled === 'true';
+    document.getElementById('enableTtsLabel').textContent = enabled === 'true' ? '开启' : '关闭';
+    M.state._enableTts = enabled === 'true';
+  };
+
+  S.toggleTts = function (e) {
+    var enabled = e.target.checked;
+    localStorage.setItem('mockmate_enable_tts', enabled);
+    document.getElementById('enableTtsLabel').textContent = enabled ? '开启' : '关闭';
+    M.state._enableTts = enabled;
+    M.toast('语音播报已' + (enabled ? '开启' : '关闭'));
+  };
+
+  S.setEnableTts = function (enabled) {
+    localStorage.setItem('mockmate_enable_tts', enabled);
+    M.state._enableTts = enabled;
+  };
+
+  S.getEnableTts = function () {
+    if (M.state._enableTts === undefined) {
+      var stored = localStorage.getItem('mockmate_enable_tts');
+      M.state._enableTts = stored === null ? true : stored === 'true';
+    }
+    return M.state._enableTts;
+  };
+
+  // ---- TTS 提供商信息 ----
+  S.ttsProviderName = function (provider) {
+    provider = provider || M.state._apiKeys.provider;
+    var map = { mimo: 'MiMo API', deepseek: 'DeepSeek（不支持语音）', qwen: '通义千问 CosyVoice' };
+    return map[provider] || '未知';
+  };
+
+  S.ttsSupported = function (provider) {
+    provider = provider || M.state._apiKeys.provider;
+    return provider !== 'deepseek';
+  };
+
+  S.updateTtsProviderInfo = function () {
+    var el = document.getElementById('ttsProviderName');
+    var infoEl = document.getElementById('ttsProviderInfo');
+    if (!el || !infoEl) return;
+    var provider = M.state._apiKeys.provider || 'mimo';
+    var name = S.ttsProviderName(provider);
+    el.textContent = name;
+    el.style.color = S.ttsSupported(provider) ? 'var(--green)' : 'var(--red)';
+    infoEl.style.display = 'block';
+
+    // 如果当前提供商不支持 TTS，自动禁用开关
+    var toggle = document.getElementById('enableTtsToggle');
+    if (toggle) {
+      if (!S.ttsSupported(provider)) {
+        toggle.checked = false;
+        S.setEnableTts(false);
+        document.getElementById('enableTtsLabel').textContent = '关闭';
+      }
+      toggle.disabled = !S.ttsSupported(provider);
+      toggle.parentElement.style.opacity = S.ttsSupported(provider) ? '1' : '0.4';
+    }
+  };
+
   // ---- 切换提供商 ----
   S.switchProvider = async function (e) {
     var provider = e.target.value;
     try {
       await M.Crypto.saveAllApiKeys(null, { provider: provider });
       M.state._apiKeys.provider = provider;
-      M.toast('已切换到 ' + (provider === 'mimo' ? 'MiMo' : 'DeepSeek'));
+      S.updateTtsProviderInfo();
+      M.toast('已切换到 ' + (provider === 'mimo' ? 'MiMo' : provider === 'qwen' ? '通义千问' : 'DeepSeek'));
       await M.checkStatus();
     } catch(e) {
       M.toast('切换失败: ' + e.message);

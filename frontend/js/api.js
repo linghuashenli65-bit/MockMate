@@ -19,8 +19,18 @@ window.MockMate = window.MockMate || {};
     if (keys) {
       if (keys.mimo_api_key) headers['X-Mimo-Api-Key'] = keys.mimo_api_key;
       if (keys.deepseek_api_key) headers['X-Deepseek-Api-Key'] = keys.deepseek_api_key;
+      if (keys.qwen_api_key) headers['X-Qwen-Api-Key'] = keys.qwen_api_key;
       if (keys.provider) headers['X-Ai-Provider'] = keys.provider;
     }
+    // 非敏感配置直接从 localStorage 读取
+    var ttsModel = M.ls.get('qwen_tts_model', '');
+    if (ttsModel) headers['X-Qwen-Tts-Model'] = ttsModel;
+    var qwenReasoner = M.ls.get('qwen_reasoner_model', '');
+    if (qwenReasoner) headers['X-Qwen-Model-Reasoner'] = qwenReasoner;
+    var qwenChat = M.ls.get('qwen_chat_model', '');
+    if (qwenChat) headers['X-Qwen-Model-Chat'] = qwenChat;
+    var qwenWrittenEval = M.ls.get('qwen_written_eval_model', '');
+    if (qwenWrittenEval) headers['X-Qwen-Model-Written-Eval'] = qwenWrittenEval;
     return headers;
   }
 

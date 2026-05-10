@@ -1,0 +1,88 @@
+{
+  "id": "e767b9c0647e",
+  "type": "score",
+  "resume_snippet": "廖宏⻜\nAI ⼤模型应⽤开发⼯程师\nliaohongfei@hotmail.com\n \n18084960869\n \n男\n \n26 岁\n \n深圳\n \n5 年经验\n \n专业技能\n•编程语⾔：精通  Python，熟练使⽤  FastAPI 开发后端接⼝，掌握  SQLModel 、 Pydantic ，熟悉  Numpy 、\nPandas 、 Matplotlib 、 Requests 等常⽤第三⽅库。\n•LLM 应⽤开发：熟练使⽤  LangChain 、 Dify 搭建  RAG 应⽤，掌握提⽰词⼯程、结构化输出、对话记忆、多场景知\n识库构建；熟悉  FAISS/Chroma/Milvus 等",
+  "profile": {
+    "summary": "负责将AI模型（大语言模型、计算机视觉、语音等）集成到产品中，设计并开发面向用户的智能应用。该岗位需兼顾算法理解与工程落地，涵盖Prompt工程、模型微调、API服务化、前后端联调等，发展方向为AI解决方案架构师或模型优化专家。",
+    "position": "AI应用开发工程师",
+    "difficulty": "mid",
+    "tech_stack": [
+      "Python 3.10+",
+      "FastAPI / Flask",
+      "LangChain / LlamaIndex",
+      "OpenAI API / 兼容API",
+      "Milvus / Pinecone / Chroma",
+      "Docker / Kubernetes",
+      "Git / CI/CD",
+      "PostgreSQL / Redis",
+      "React / Vue (可选)"
+    ],
+    "nice_to_have": [
+      "有MCP（模型上下文协议）或Function Calling开发经验",
+      "了解LangChain / LlamaIndex等编排框架",
+      "具备模型性能优化经验（如量化、蒸馏、vLLM部署）",
+      "熟悉Docker/Kubernetes，能部署高可用AI服务",
+      "有Agent开发经验（AutoGPT、CrewAI等）",
+      "了解多模态模型（如图像、语音）的调用与集成"
+    ],
+    "interview_focus": [
+      "工程落地能力：能否将模型从demo转化为稳定、可扩展的服务，处理过并发、限流、重试等生产问题",
+      "Prompt与模型理解深度：是否具备系统性优化Prompt的经验，而非只会复制常见模板",
+      "RAG与Agent实战：能否清晰阐述项目中的检索策略、工具调用流程、错误恢复机制",
+      "全栈视野：是否了解前后端交互、缓存策略、数据库选型等非AI部分，能独立完成原型开发",
+      "学习与调优能力：遇到模型效果差时，能否系统性地分析原因（数据、参数、架构）并给出方案"
+    ],
+    "required_skills": [
+      "扎实的Python编程能力，熟悉异步编程（asyncio）和常用框架（FastAPI/Flask）",
+      "熟练使用大模型API（如OpenAI、Claude、文心一言等）及RESTful接口设计",
+      "掌握Prompt工程与RAG（检索增强生成）技术，能优化模型输出质量",
+      "了解LLM微调基础（LoRA/QLoRA）及常用开源模型（LLaMA、ChatGLM等）的部署",
+      "熟悉矢量数据库（如Milvus、Pinecone）及Embedding模型的使用",
+      "具备前后端协作能力，能独立搭建前后端交互Demo（React/Vue + Python后端）"
+    ],
+    "responsibilities": [
+      "根据业务需求设计AI产品方案，完成模型选型、Prompt设计及数据准备",
+      "开发AI服务的RESTful API，确保高并发、低延迟的稳定服务",
+      "实现RAG系统：文档解析、分块、向量化存储及检索增强生成",
+      "探索并实现Agent应用（工具调用、多步推理、记忆管理等）",
+      "参与模型微调Pipeline搭建，处理训练数据并评估效果",
+      "编写技术文档，与产品、后端、测试紧密协作，推动功能上线"
+    ],
+    "years_experience": "3-5年",
+    "industry_insights": "AI应用开发是目前企业数字化转型的核心赛道，薪资涨幅显著。初级（1-2年）年薪约20-35万，中级（3-5年）约40-70万，高级（5年以上）可达80-120万+（一线城市）。市场趋势：从单纯的API调用向Agent化、多模态、端侧部署发展，具备全栈能力和模型调优经验的工程师供不应求。",
+    "common_interview_topics": [
+      "🔹问题：请设计一个基于RAG的智能问答系统，包括数据预处理、向量检索和生成环节的具体实现。（考察点：对RAG全链路理解，包括分块策略、Embedding选择、检索与排序、提示词构造）",
+      "🔹问题：你如何评估一个Prompt的质量？如果模型输出胡言乱语，你会采取哪些优化措施？（考察点：Prompt工程经验，如few-shot、CoT、自洽性、输出格式控制、温度调整）",
+      "🔹问题：解释一下Token限制、上下文窗口、KV Cache在LLM推理中的作用。（考察点：对模型底层原理的理解，是否能分析性能瓶颈）",
+      "🔹问题：你用过哪些Agent框架？请描述一个你实现的多工具调用场景，如何处理工具选择错误或超时？（考察点：Agent架构认知，重试机制、错误处理、记忆管理）",
+      "🔹问题：设计一个高并发AI API服务架构，如何控制成本（Token消耗）并保证响应速度？（考察点：工程化能力，包括缓存、流式输出、负载均衡、模型量化、预热等）",
+      "🔹问题：如何微调一个开源大模型？需要准备什么样的数据？怎么评估微调后的效果？（考察点：了解LoRA原理、数据格式（Alpaca/ShareGPT）、评估指标（BLEU/Rouge/人工））",
+      "🔹问题：你的项目中有哪些AI应用伦理或合规的考虑？比如如何防止Prompt注入？（考察点：安全意识，对输入过滤、输出审核、内容安全的理解）",
+      "🔹问题：现场写一段代码：调用OpenAI API实现一个能联网搜索并总结的Agent（假设已有搜索API）。（考察点：编程基本功、Function Calling用法、异常处理）"
+    ]
+  },
+  "result": {
+    "score": 78,
+    "strengths": [
+      "项目经验丰富且高度相关，两个核心项目（RAG+Agent、RAG+AI搜索）完整覆盖了岗位要求的RAG、Agent、提示词工程等核心职责，成果描述具体（如提升转化率、减少人工工作量）",
+      "技术栈与岗位要求匹配度高，熟练掌握Python、FastAPI、LangChain，并有Chroma/Milvus等向量数据库、Prompt工程、Function Calling及模型微调的实战经验",
+      "具备从数据工程（大数据平台）到AI应用的复合背景，展现了良好的学习与技术演进路径，符合“AI解决方案架构师”的发展方向"
+    ],
+    "weaknesses": [
+      "简历中未提及任何教育背景信息，这在评估“学校层次、学历、专业”时造成缺失，可能成为初筛的减分项",
+      "岗位必备的“熟悉异步编程（asyncio）”和“React/Vue（可选）”技能在简历中未明确体现；对Docker的掌握停留在“熟悉”而非“熟练部署高可用服务”，Kubernetes、CI/CD等DevOps能力提及不足",
+      "项目经历侧重于功能实现与业务成果，但对工程落地中高并发、限流、缓存、容错等生产级挑战的深度描述不足，与岗位强调的“工程落地能力”考察点有差距"
+    ],
+    "suggestions": [
+      "补充教育背景，清晰列出学校、专业、学历和毕业时间，以消除招聘方的疑虑",
+      "在“专业技能”和“项目经历”中，明确补充并举例说明异步编程（asyncio）的应用、API服务的性能优化措施（如流式输出、缓存策略）以及前后端协作细节（即使非React/Vue，也应说明如何独立完成Demo）",
+      "深化项目描述的“技术深度”，例如：RAG项目中的分块策略对比与选择依据、检索失败时的重试或降级方案、Agent任务的工具选择与错误处理机制等，以更好地匹配面试考察焦点"
+    ]
+  },
+  "latency_ms": 22000.0,
+  "token_count": 4633,
+  "quality": "good",
+  "corrections": null,
+  "timestamp": "2026-05-09T21:55:14.377166",
+  "reviewed": false
+}

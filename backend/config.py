@@ -48,7 +48,16 @@ DEEPSEEK_MODEL_REASONER = "deepseek-v4-flash"
 DEEPSEEK_MODEL_CHAT = "deepseek-v4-flash"
 DEEPSEEK_MODEL_WRITTEN_EVAL = "deepseek-chat"
 
-# 默认 AI 提供商: "mimo" 或 "deepseek"
+# Qwen (通义千问) API — OpenAI 兼容接口
+QWEN_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+QWEN_API_KEY = os.environ.get("QWEN_API_KEY", "")
+QWEN_MODEL = "qwen-plus"
+QWEN_MODEL_REASONER = "qwen-plus"
+QWEN_MODEL_CHAT = "qwen-plus"
+QWEN_MODEL_WRITTEN_EVAL = "qwen-turbo"
+QWEN_MODEL_TTS = "cosyvoice-v1"
+
+# 默认 AI 提供商: "mimo" / "deepseek" / "qwen"
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "mimo")
 
 # 是否允许未配置 API Key 的用户回退使用全局 Key（.env 中的配置）
