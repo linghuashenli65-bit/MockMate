@@ -27,10 +27,11 @@
 - **语音播报优化**：mid-interview 实时开关（通过 enable_tts 参数同步后端）、面试页 TTS 指示器、设置页显示当前语音提供商
 - **千问模型默认值**：config.py 新增 QWEN_MODEL_REASONER / QWEN_MODEL_CHAT / QWEN_MODEL_WRITTEN_EVAL / QWEN_MODEL_TTS 可配置
 - **状态指示器**：改为按前端选中提供商判断，更准确反映用户实际配置状态
+- **文档同步更新**：README.md 架构图新增 Qwen 客户端和 finetune 模块，技术栈表补充千问相关能力，项目结构同步新增 10 个 JS 模块；frontend/README.md 全面跟进 7 Tab 布局和新增模块
 
 ---
 
-### ✨ 新功能
+## [2026-05-08] — 训练数据采集 + 反馈系统
 - **训练数据采集模块** (`finetune/`)：自动记录每次 AI 评分结果，包括题目、回答、评分、延迟和 token 用量
 - **点赞/点踩反馈系统**：评分结果上的 👍/👎 按钮，点踩时可提交修正内容，修正数据存入 `reviewed` 目录
 - **训练数据管理页面**：前端新增"微调"Tab，支持数据统计浏览、按类型和质量过滤
