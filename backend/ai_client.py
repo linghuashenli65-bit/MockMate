@@ -1,6 +1,6 @@
 """统一的 AI 客户端接口（异步）
 
-支持 MiMo / DeepSeek / Qwen 三后端，自动路由和 fallback。
+支持 MiMo / DeepSeek / Qwen / Zhipu 四后端，自动路由和 fallback。
 多用户模式下，API Key 从请求头获取，通过 with_keys() 创建临时客户端。
 """
 import logging
@@ -10,25 +10,28 @@ from .config import AI_PROVIDER
 from .mimoclient import MiMoClient
 from .deepseek_client import DeepSeekClient
 from .qwen_client import QwenClient
+from .zhipu_client import ZhipuClient
 
 logger = logging.getLogger(__name__)
 
 # fallback 优先级（按配置顺序尝试）
 _FALLBACK_ORDER = {
-    "mimo": ["deepseek", "qwen"],
-    "deepseek": ["mimo", "qwen"],
-    "qwen": ["deepseek", "mimo"],
+    "mimo":     ["deepseek", "qwen", "zhipu"],
+    "deepseek": ["mimo", "qwen", "zhipu"],
+    "qwen":     ["deepseek", "mimo", "zhipu"],
+    "zhipu":    ["deepseek", "qwen", "mimo"],
 }
 
 
 class AIClient:
-    """统一 AI 客户端，屏蔽 MiMo/DeepSeek/Qwen 差异"""
+    """统一 AI 客户端，屏蔽 MiMo/DeepSeek/Qwen/Zhipu 差异"""
 
     def __init__(self):
         self.mimo = MiMoClient()
         self.deepseek = DeepSeekClient()
         self.qwen = QwenClient()
-        self._provider = AI_PROVIDER  # "mimo" | "deepseek" | "qwen"
+        self.zhipu = ZhipuClient()
+        self._provider = AI_PROVIDER  # "mimo" | "deepseek" | "qwen" | "zhipu"
         self._last_used_client = self._primary()
         self._auto_switch_provider()
 
@@ -38,20 +41,21 @@ class AIClient:
 
     @provider.setter
     def provider(self, value: str):
-        if value in ("mimo", "deepseek", "qwen"):
+        if value in ("mimo", "deepseek", "qwen", "zhipu"):
             self._provider = value
             logger.info(f"AI 提供商切换为: {value}")
 
     @property
     def ready(self) -> bool:
         """任意一个提供商就绪就算就绪"""
-        return self.mimo.ready or self.deepseek.ready or self.qwen.ready
+        return self.mimo.ready or self.deepseek.ready or self.qwen.ready or self.zhipu.ready
 
     def _primary(self):
         return {
             "mimo": self.mimo,
             "deepseek": self.deepseek,
             "qwen": self.qwen,
+            "zhipu": self.zhipu,
         }.get(self._provider, self.mimo)
 
     def _get_fallback(self):
@@ -66,7 +70,7 @@ class AIClient:
         """如果当前提供商未配置但另一个已配置，自动切换"""
         primary = self._primary()
         if not primary.ready:
-            for name, client in [("mimo", self.mimo), ("deepseek", self.deepseek), ("qwen", self.qwen)]:
+            for name, client in [("mimo", self.mimo), ("deepseek", self.deepseek), ("qwen", self.qwen), ("zhipu", self.zhipu)]:
                 if client.ready:
                     self._provider = name
                     logger.info(f"自动切换到 {name}")
@@ -88,6 +92,11 @@ class AIClient:
                   qwen_chat_model: Optional[str] = None,
                   qwen_written_eval_model: Optional[str] = None,
                   qwen_tts_model: Optional[str] = None,
+                  zhipu_key: Optional[str] = None,
+                  zhipu_reasoner_model: Optional[str] = None,
+                  zhipu_chat_model: Optional[str] = None,
+                  zhipu_written_eval_model: Optional[str] = None,
+                  zhipu_tts_model: Optional[str] = None,
                   provider: Optional[str] = None) -> 'AIClient':
         """创建使用指定 API Key 的临时客户端（共享 HTTP 连接池，无需关闭）"""
         client = AIClient.__new__(AIClient)
@@ -98,7 +107,12 @@ class AIClient:
                                           chat_model=qwen_chat_model,
                                           written_eval_model=qwen_written_eval_model,
                                           tts_model=qwen_tts_model)
-        client._provider = provider if provider in ("mimo", "deepseek", "qwen") else self._provider
+        client.zhipu = self.zhipu.with_key(zhipu_key,
+                                            reasoner_model=zhipu_reasoner_model,
+                                            chat_model=zhipu_chat_model,
+                                            written_eval_model=zhipu_written_eval_model,
+                                            tts_model=zhipu_tts_model)
+        client._provider = provider if provider in ("mimo", "deepseek", "qwen", "zhipu") else self._provider
         client._last_used_client = client._primary()
         return client
 
@@ -130,22 +144,25 @@ class AIClient:
         return await self._call_with_fallback("written_eval", messages, **kwargs)
 
     async def extract_text_from_image(self, image_bytes: bytes) -> Optional[str]:
-        """图片文字提取 - 优选 MiMo，其次 Qwen vl 模型"""
+        """图片文字提取 - 优选 MiMo，其次 Qwen vl，再 Zhipu vision"""
         result = await self.mimo.extract_text_from_image(image_bytes)
         if result is None and self.qwen.ready:
             result = await self.qwen.extract_text_from_image(image_bytes)
-        if result is None and self.deepseek.ready:
-            result = await self.deepseek.extract_text_from_image(image_bytes)
+        if result is None and self.zhipu.ready:
+            result = await self.zhipu.extract_text_from_image(image_bytes)
         return result
 
     async def text_to_speech(self, text: str) -> Optional[bytes]:
-        """语音合成 - 优选 MiMo，其次 Qwen CosyVoice"""
+        """语音合成 - 优选 MiMo，其次 Qwen CosyVoice，再 Zhipu GLM-TTS"""
         result = await self.mimo.text_to_speech(text)
         if result is None and self.qwen.ready:
             result = await self.qwen.text_to_speech(text)
+        if result is None and self.zhipu.ready:
+            result = await self.zhipu.text_to_speech(text)
         return result
 
     async def close(self):
         await self.mimo.close()
         await self.deepseek.close()
         await self.qwen.close()
+        await self.zhipu.close()

@@ -17,6 +17,11 @@ window.MockMate = window.MockMate || {};
     document.getElementById('saveQwenChatModel').addEventListener('click', S.saveQwenChatModel);
     document.getElementById('saveQwenWrittenEvalModel').addEventListener('click', S.saveQwenWrittenEvalModel);
     document.getElementById('saveQwenTtsModel').addEventListener('click', S.saveQwenTtsModel);
+    document.getElementById('saveZhipuKey').addEventListener('click', S.saveZhipuKey);
+    document.getElementById('saveZhipuReasonerModel').addEventListener('click', S.saveZhipuReasonerModel);
+    document.getElementById('saveZhipuChatModel').addEventListener('click', S.saveZhipuChatModel);
+    document.getElementById('saveZhipuWrittenEvalModel').addEventListener('click', S.saveZhipuWrittenEvalModel);
+    document.getElementById('saveZhipuTtsModel').addEventListener('click', S.saveZhipuTtsModel);
     document.getElementById('providerSelect').addEventListener('change', S.switchProvider);
     document.getElementById('enableTtsToggle').addEventListener('change', S.toggleTts);
     // 页面加载时恢复已存储的 Key（显示占位符）
@@ -26,6 +31,10 @@ window.MockMate = window.MockMate || {};
     S.restoreQwenChatModel();
     S.restoreQwenWrittenEvalModel();
     S.restoreQwenTtsModel();
+    S.restoreZhipuReasonerModel();
+    S.restoreZhipuChatModel();
+    S.restoreZhipuWrittenEvalModel();
+    S.restoreZhipuTtsModel();
     S.updateTtsProviderInfo();
   };
 
@@ -40,6 +49,9 @@ window.MockMate = window.MockMate || {};
     }
     if (keys.qwen_api_key) {
       document.getElementById('qwenKeyInput').placeholder = '已保存（点击修改）';
+    }
+    if (keys.zhipu_api_key) {
+      document.getElementById('zhipuKeyInput').placeholder = '已保存（点击修改）';
     }
     if (keys.provider) {
       var sel = document.getElementById('providerSelect');
@@ -113,9 +125,63 @@ window.MockMate = window.MockMate || {};
     M.setBtnLoading(btn, false, '保存');
   };
 
+  // ---- 保存 Zhipu Key ----
+  S.saveZhipuKey = async function () {
+    var key = document.getElementById('zhipuKeyInput').value.trim();
+    if (!key) { M.toast('请输入智谱 API Key'); return; }
+
+    var btn = document.getElementById('saveZhipuKey');
+    M.setBtnLoading(btn, true, '保存中...');
+
+    try {
+      await M.Crypto.saveAllApiKeys(null, { zhipu_api_key: key });
+      M.state._apiKeys.zhipu_api_key = key;
+      document.getElementById('zhipuKeyInput').value = '';
+      document.getElementById('zhipuKeyInput').placeholder = '已保存（点击修改）';
+      M.toast('Zhipu API Key 已保存到浏览器');
+      await M.checkStatus();
+    } catch(e) {
+      M.toast('保存失败: ' + e.message);
+    }
+    M.setBtnLoading(btn, false, '保存');
+  };
+
+  // ---- 保存 Zhipu 模型 ----
+  function saveZhipuModel(inputId, storageKey, defaultDesc) {
+    var sel = document.getElementById(inputId);
+    var model = sel.value;
+    if (!model) {
+      M.ls.remove(storageKey);
+      M.toast('已重置为默认模型 (' + defaultDesc + ')');
+    } else {
+      M.ls.set(storageKey, model);
+      M.toast('智谱模型已设置为 ' + model);
+    }
+    // 刷新显示：把选中值同步到其他同类型 select（支持联动）
+    document.getElementById(inputId).value = model || '';
+  }
+
+  function restoreZhipuModel(inputId, storageKey) {
+    var model = M.ls.get(storageKey, '');
+    if (model) {
+      document.getElementById(inputId).value = model;
+    }
+  }
+
+  S.saveZhipuReasonerModel = function () { saveZhipuModel('zhipuReasonerModelInput', 'zhipu_reasoner_model', 'glm-4.7-flash'); };
+  S.saveZhipuChatModel = function () { saveZhipuModel('zhipuChatModelInput', 'zhipu_chat_model', 'glm-4.7-flash'); };
+  S.saveZhipuWrittenEvalModel = function () { saveZhipuModel('zhipuWrittenEvalModelInput', 'zhipu_written_eval_model', 'glm-4-flash'); };
+  S.saveZhipuTtsModel = function () { saveZhipuModel('zhipuTtsModelInput', 'zhipu_tts_model', 'glm-tts'); };
+
+  S.restoreZhipuReasonerModel = function () { restoreZhipuModel('zhipuReasonerModelInput', 'zhipu_reasoner_model'); };
+  S.restoreZhipuChatModel = function () { restoreZhipuModel('zhipuChatModelInput', 'zhipu_chat_model'); };
+  S.restoreZhipuWrittenEvalModel = function () { restoreZhipuModel('zhipuWrittenEvalModelInput', 'zhipu_written_eval_model'); };
+  S.restoreZhipuTtsModel = function () { restoreZhipuModel('zhipuTtsModelInput', 'zhipu_tts_model'); };
+
   // ---- 保存 Qwen TTS 模型名 ----
   S.saveQwenTtsModel = function () {
-    var model = document.getElementById('qwenTtsModelInput').value.trim();
+    var sel = document.getElementById('qwenTtsModelInput');
+    var model = sel.value;
     if (!model) {
       M.ls.remove('qwen_tts_model');
       M.toast('已重置为默认模型 (cosyvoice-v1)');
@@ -123,20 +189,19 @@ window.MockMate = window.MockMate || {};
       M.ls.set('qwen_tts_model', model);
       M.toast('Qwen TTS 模型已设置为 ' + model);
     }
-    document.getElementById('qwenTtsModelInput').value = '';
-    document.getElementById('qwenTtsModelInput').placeholder = model || 'cosyvoice-v1';
   };
 
   S.restoreQwenTtsModel = function () {
     var model = M.ls.get('qwen_tts_model', '');
     if (model) {
-      document.getElementById('qwenTtsModelInput').placeholder = model;
+      document.getElementById('qwenTtsModelInput').value = model;
     }
   };
 
   // ---- 保存 Qwen 推理/对话/判卷模型名 ----
   function saveQwenModel(inputId, storageKey, defaultName) {
-    var model = document.getElementById(inputId).value.trim();
+    var sel = document.getElementById(inputId);
+    var model = sel.value;
     if (!model) {
       M.ls.remove(storageKey);
       M.toast('已重置为默认模型 (' + defaultName + ')');
@@ -144,14 +209,12 @@ window.MockMate = window.MockMate || {};
       M.ls.set(storageKey, model);
       M.toast('Qwen 模型已设置为 ' + model);
     }
-    document.getElementById(inputId).value = '';
-    document.getElementById(inputId).placeholder = model || defaultName;
   }
 
   function restoreQwenModel(inputId, storageKey, defaultName) {
     var model = M.ls.get(storageKey, '');
     if (model) {
-      document.getElementById(inputId).placeholder = model;
+      document.getElementById(inputId).value = model;
     }
   }
 
@@ -208,7 +271,7 @@ window.MockMate = window.MockMate || {};
   // ---- TTS 提供商信息 ----
   S.ttsProviderName = function (provider) {
     provider = provider || M.state._apiKeys.provider;
-    var map = { mimo: 'MiMo API', deepseek: 'DeepSeek（不支持语音）', qwen: '通义千问 CosyVoice' };
+    var map = { mimo: 'MiMo API', deepseek: 'DeepSeek（不支持语音）', qwen: '通义千问 CosyVoice', zhipu: '智谱 GLM-TTS' };
     return map[provider] || '未知';
   };
 
@@ -247,7 +310,8 @@ window.MockMate = window.MockMate || {};
       await M.Crypto.saveAllApiKeys(null, { provider: provider });
       M.state._apiKeys.provider = provider;
       S.updateTtsProviderInfo();
-      M.toast('已切换到 ' + (provider === 'mimo' ? 'MiMo' : provider === 'qwen' ? '通义千问' : 'DeepSeek'));
+      var nameMap = { mimo: 'MiMo', deepseek: 'DeepSeek', qwen: '通义千问', zhipu: '智谱' };
+      M.toast('已切换到 ' + (nameMap[provider] || provider));
       await M.checkStatus();
     } catch(e) {
       M.toast('切换失败: ' + e.message);

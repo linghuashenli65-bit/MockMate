@@ -57,7 +57,17 @@ QWEN_MODEL_CHAT = "qwen-plus"
 QWEN_MODEL_WRITTEN_EVAL = "qwen-turbo"
 QWEN_MODEL_TTS = "cosyvoice-v1"
 
-# 默认 AI 提供商: "mimo" / "deepseek" / "qwen"
+# Zhipu (智谱) API — OpenAI 兼容接口
+ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"
+ZHIPU_API_KEY = os.environ.get("ZHIPU_API_KEY", "")
+ZHIPU_MODEL = "glm-4.7-flash"
+ZHIPU_MODEL_REASONER = "glm-4.7-flash"
+ZHIPU_MODEL_CHAT = "glm-4.7-flash"
+ZHIPU_MODEL_WRITTEN_EVAL = "glm-4-flash"
+ZHIPU_MODEL_TTS = "glm-tts"
+ZHIPU_MODEL_VISION = "glm-4v-plus"
+
+# 默认 AI 提供商: "mimo" / "deepseek" / "qwen" / "zhipu"
 AI_PROVIDER = os.environ.get("AI_PROVIDER", "mimo")
 
 # 是否允许未配置 API Key 的用户回退使用全局 Key（.env 中的配置）

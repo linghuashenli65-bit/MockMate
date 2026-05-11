@@ -198,8 +198,9 @@ window.MockMate = window.MockMate || {};
       var mimo = await this.loadApiKey(userEmail, 'mimo_api_key');
       var deepseek = await this.loadApiKey(userEmail, 'deepseek_api_key');
       var qwen = await this.loadApiKey(userEmail, 'qwen_api_key');
+      var zhipu = await this.loadApiKey(userEmail, 'zhipu_api_key');
       var provider = M.ls.get('ai_provider', 'mimo');
-      return { mimo_api_key: mimo, deepseek_api_key: deepseek, qwen_api_key: qwen, provider: provider };
+      return { mimo_api_key: mimo, deepseek_api_key: deepseek, qwen_api_key: qwen, zhipu_api_key: zhipu, provider: provider };
     },
 
     async saveAllApiKeys(email, keys) {
@@ -212,6 +213,9 @@ window.MockMate = window.MockMate || {};
       }
       if (keys.qwen_api_key !== undefined) {
         await this.storeApiKey(userEmail, 'qwen_api_key', keys.qwen_api_key);
+      }
+      if (keys.zhipu_api_key !== undefined) {
+        await this.storeApiKey(userEmail, 'zhipu_api_key', keys.zhipu_api_key);
       }
       if (keys.provider) {
         M.ls.set('ai_provider', keys.provider);

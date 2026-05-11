@@ -223,6 +223,7 @@
           <option value="mimo">MiMo API</option>
           <option value="deepseek">DeepSeek API</option>
           <option value="qwen">通义千问 (Qwen)</option>
+          <option value="zhipu">智谱 (Zhipu)</option>
         </select>
       </div>
     </div>
@@ -255,29 +256,105 @@
       </div>
       <div class="setting-row">
         <label>推理模型</label>
-        <input type="text" id="qwenReasonerModelInput" placeholder="qwen-plus" style="flex:1;font-family:monospace">
+        <select id="qwenReasonerModelInput" style="flex:1">
+          <option value="">默认 (qwen-plus)</option>
+          <option value="qwen-max">qwen-max（最强）</option>
+          <option value="qwen-plus">qwen-plus（推荐）</option>
+          <option value="qwen-turbo">qwen-turbo（快速）</option>
+          <option value="qwq-32b">qwq-32b（推理）</option>
+          <option value="deepseek-r1">deepseek-r1（推理）</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="saveQwenReasonerModel">保存</button>
       </div>
       <div class="setting-row">
         <label>对话模型</label>
-        <input type="text" id="qwenChatModelInput" placeholder="qwen-plus" style="flex:1;font-family:monospace">
+        <select id="qwenChatModelInput" style="flex:1">
+          <option value="">默认 (qwen-plus)</option>
+          <option value="qwen-max">qwen-max（最强）</option>
+          <option value="qwen-plus">qwen-plus（推荐）</option>
+          <option value="qwen-turbo">qwen-turbo（快速）</option>
+          <option value="qwq-32b">qwq-32b（推理）</option>
+          <option value="deepseek-r1">deepseek-r1（推理）</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="saveQwenChatModel">保存</button>
       </div>
       <div class="setting-row">
         <label>判卷模型</label>
-        <input type="text" id="qwenWrittenEvalModelInput" placeholder="qwen-turbo" style="flex:1;font-family:monospace">
+        <select id="qwenWrittenEvalModelInput" style="flex:1">
+          <option value="">默认 (qwen-turbo)</option>
+          <option value="qwen-turbo">qwen-turbo（快速）</option>
+          <option value="qwen-plus">qwen-plus（推荐）</option>
+          <option value="qwen-max">qwen-max（最强）</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="saveQwenWrittenEvalModel">保存</button>
       </div>
       <div class="setting-row">
         <label>TTS 模型</label>
-        <input type="text" id="qwenTtsModelInput" placeholder="cosyvoice-v1" style="flex:1;font-family:monospace">
+        <select id="qwenTtsModelInput" style="flex:1">
+          <option value="">默认 (cosyvoice-v1)</option>
+          <option value="cosyvoice-v1">cosyvoice-v1</option>
+        </select>
         <button class="btn btn-primary btn-sm" id="saveQwenTtsModel">保存</button>
       </div>
       <div style="font-size:12px;color:var(--text2);margin-top:4px">
         通义千问支持：推理出题、对话、图片识别、语音合成<br>
-        留空则使用默认模型：推理/对话 = qwen-plus，判卷 = qwen-turbo，TTS = cosyvoice-v1<br>
-        常见模型：qwen-max、qwen-plus、qwen-turbo、deepseek-r1、qwq-32b<br>
         去 <a href="https://help.aliyun.com/zh/model-studio/getting-started/first-api-call-to-qwen" target="_blank" style="color:var(--accent2)">阿里云 Model Studio</a> 获取 API Key
+      </div>
+    </div>
+    <div class="card">
+      <h2>智谱 (Zhipu) 配置</h2>
+      <div class="setting-row">
+        <label>Zhipu API Key</label>
+        <input type="password" id="zhipuKeyInput" placeholder="输入智谱 API Key">
+        <button class="btn btn-primary btn-sm" id="saveZhipuKey">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>推理模型</label>
+        <select id="zhipuReasonerModelInput" style="flex:1">
+          <option value="">默认 (glm-4.7-flash)</option>
+          <option value="glm-5.1">glm-5.1（旗舰）</option>
+          <option value="glm-5">glm-5（高智能基座）</option>
+          <option value="glm-4.7">glm-4.7（强力）</option>
+          <option value="glm-4.7-flash">glm-4.7-flash（高速）</option>
+          <option value="glm-4.5-air">glm-4.5-air（高性价比）</option>
+          <option value="glm-4-flash">glm-4-flash（免费）</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="saveZhipuReasonerModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>对话模型</label>
+        <select id="zhipuChatModelInput" style="flex:1">
+          <option value="">默认 (glm-4.7-flash)</option>
+          <option value="glm-5.1">glm-5.1（旗舰）</option>
+          <option value="glm-5">glm-5（高智能基座）</option>
+          <option value="glm-4.7">glm-4.7（强力）</option>
+          <option value="glm-4.7-flash">glm-4.7-flash（高速）</option>
+          <option value="glm-4.5-air">glm-4.5-air（高性价比）</option>
+          <option value="glm-4-flash">glm-4-flash（免费）</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="saveZhipuChatModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>判卷模型</label>
+        <select id="zhipuWrittenEvalModelInput" style="flex:1">
+          <option value="">默认 (glm-4-flash)</option>
+          <option value="glm-4-flash">glm-4-flash（免费）</option>
+          <option value="glm-4.5-air">glm-4.5-air（高性价比）</option>
+          <option value="glm-4.7-flash">glm-4.7-flash（高速）</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="saveZhipuWrittenEvalModel">保存</button>
+      </div>
+      <div class="setting-row">
+        <label>TTS 模型</label>
+        <select id="zhipuTtsModelInput" style="flex:1">
+          <option value="">默认 (glm-tts)</option>
+          <option value="glm-tts">glm-tts</option>
+        </select>
+        <button class="btn btn-primary btn-sm" id="saveZhipuTtsModel">保存</button>
+      </div>
+      <div style="font-size:12px;color:var(--text2);margin-top:4px">
+        智谱支持：推理出题、对话、图片识别、语音合成（GLM-TTS）<br>
+        去 <a href="https://open.bigmodel.cn" target="_blank" style="color:var(--accent2)">智谱 AI 开放平台</a> 获取 API Key
       </div>
     </div>
     <div class="card">

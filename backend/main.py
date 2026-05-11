@@ -107,25 +107,35 @@ def get_user_ai(
     x_qwen_model_chat: Optional[str] = Header(None, alias="X-Qwen-Model-Chat"),
     x_qwen_model_written_eval: Optional[str] = Header(None, alias="X-Qwen-Model-Written-Eval"),
     x_qwen_tts_model: Optional[str] = Header(None, alias="X-Qwen-Tts-Model"),
+    x_zhipu_api_key: Optional[str] = Header(None, alias="X-Zhipu-Api-Key"),
+    x_zhipu_model_reasoner: Optional[str] = Header(None, alias="X-Zhipu-Model-Reasoner"),
+    x_zhipu_model_chat: Optional[str] = Header(None, alias="X-Zhipu-Model-Chat"),
+    x_zhipu_model_written_eval: Optional[str] = Header(None, alias="X-Zhipu-Model-Written-Eval"),
+    x_zhipu_tts_model: Optional[str] = Header(None, alias="X-Zhipu-Tts-Model"),
     x_ai_provider: Optional[str] = Header(None, alias="X-Ai-Provider"),
 ) -> AIClient:
-    """从请求头提取 API Key，创建 per-request 的 AIClient。
-    如果未提供 Key，根据 ALLOW_SHARED_API_KEY 配置决定行为：
-    - false（默认）：抛出 401，要求用户配置自己的 Key
-    - true：回退到全局配置（记警告日志）
-    """
-    has_any_key = x_mimo_api_key or x_deepseek_api_key or x_qwen_api_key
+    """从请求头提取 API Key，创建 per-request 的 AIClient。"""
+    has_any_key = x_mimo_api_key or x_deepseek_api_key or x_qwen_api_key or x_zhipu_api_key
     if has_any_key:
-        return ai.with_keys(x_mimo_api_key, x_deepseek_api_key, x_qwen_api_key,
-                            qwen_reasoner_model=x_qwen_model_reasoner,
-                            qwen_chat_model=x_qwen_model_chat,
-                            qwen_written_eval_model=x_qwen_model_written_eval,
-                            qwen_tts_model=x_qwen_tts_model, provider=x_ai_provider)
+        return ai.with_keys(
+            mimo_key=x_mimo_api_key,
+            deepseek_key=x_deepseek_api_key,
+            qwen_key=x_qwen_api_key,
+            qwen_reasoner_model=x_qwen_model_reasoner,
+            qwen_chat_model=x_qwen_model_chat,
+            qwen_written_eval_model=x_qwen_model_written_eval,
+            qwen_tts_model=x_qwen_tts_model,
+            zhipu_key=x_zhipu_api_key,
+            zhipu_reasoner_model=x_zhipu_model_reasoner,
+            zhipu_chat_model=x_zhipu_model_chat,
+            zhipu_written_eval_model=x_zhipu_model_written_eval,
+            zhipu_tts_model=x_zhipu_tts_model,
+            provider=x_ai_provider,
+        )
     if x_ai_provider:
-        # 只切了提供商，没换 key
         return ai.with_keys(provider=x_ai_provider)
     if not ALLOW_SHARED_API_KEY:
-        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key / X-Deepseek-Api-Key / X-Qwen-Api-Key 请求头）")
+        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key / X-Deepseek-Api-Key / X-Qwen-Api-Key / X-Zhipu-Api-Key 请求头）")
     logger.warning("未提供 API Key 的请求正在使用全局配置的 Key（如需关闭请设置 ALLOW_SHARED_API_KEY=false）")
     return ai
 
@@ -237,7 +247,7 @@ async def lifespan(app: FastAPI):
     logger.info("MockMate 服务启动")
     logger.info(f"  日志文件: {log_file}")
     logger.info(f"  数据库:   {'MySQL' if db.available else 'JSON 文件'}")
-    for name, client in [("MiMo API", ai.mimo), ("DeepSeek", ai.deepseek), ("Qwen", ai.qwen)]:
+    for name, client in [("MiMo API", ai.mimo), ("DeepSeek", ai.deepseek), ("Qwen", ai.qwen), ("Zhipu", ai.zhipu)]:
         logger.info(f"  {name}:    {'已配置' if client.ready else '未配置'}")
     logger.info(f"  当前提供商:   {ai.provider}")
     stats = await db.cache_stats()
@@ -261,6 +271,7 @@ async def get_status(user_ai: AIClient = Depends(get_user_ai)):
         "mimo_ready": user_ai.mimo.ready,
         "deepseek_ready": user_ai.deepseek.ready,
         "qwen_ready": user_ai.qwen.ready,
+        "zhipu_ready": user_ai.zhipu.ready,
         "db": "mysql" if db.available else "json",
         "cache": stats,
     }
@@ -268,7 +279,7 @@ async def get_status(user_ai: AIClient = Depends(get_user_ai)):
 @app.post("/api/config")
 def update_config(cfg: ConfigUpdate, user_ai: AIClient = Depends(get_user_ai)):
     """切换 AI 提供商（API Key 由浏览器管理，不经过后端存储）"""
-    if cfg.provider in ("mimo", "deepseek", "qwen"):
+    if cfg.provider in ("mimo", "deepseek", "qwen", "zhipu"):
         user_ai.provider = cfg.provider
     return {"message": "配置已更新"}
 
@@ -1061,6 +1072,7 @@ def main():
     MiMo:     {'[OK]' if ai.mimo.ready else '[  ]'}
     DeepSeek: {'[OK]' if ai.deepseek.ready else '[  ]'}
     Qwen:     {'[OK]' if ai.qwen.ready else '[  ]'}
+    Zhipu:    {'[OK]' if ai.zhipu.ready else '[  ]'}
     日志:     {log_file}
 
     局域网其他设备请使用 http://{lan_ip}:{PORT} 访问

@@ -20,17 +20,20 @@ window.MockMate = window.MockMate || {};
       if (keys.mimo_api_key) headers['X-Mimo-Api-Key'] = keys.mimo_api_key;
       if (keys.deepseek_api_key) headers['X-Deepseek-Api-Key'] = keys.deepseek_api_key;
       if (keys.qwen_api_key) headers['X-Qwen-Api-Key'] = keys.qwen_api_key;
+      if (keys.zhipu_api_key) headers['X-Zhipu-Api-Key'] = keys.zhipu_api_key;
       if (keys.provider) headers['X-Ai-Provider'] = keys.provider;
     }
     // 非敏感配置直接从 localStorage 读取
-    var ttsModel = M.ls.get('qwen_tts_model', '');
-    if (ttsModel) headers['X-Qwen-Tts-Model'] = ttsModel;
-    var qwenReasoner = M.ls.get('qwen_reasoner_model', '');
-    if (qwenReasoner) headers['X-Qwen-Model-Reasoner'] = qwenReasoner;
-    var qwenChat = M.ls.get('qwen_chat_model', '');
-    if (qwenChat) headers['X-Qwen-Model-Chat'] = qwenChat;
-    var qwenWrittenEval = M.ls.get('qwen_written_eval_model', '');
-    if (qwenWrittenEval) headers['X-Qwen-Model-Written-Eval'] = qwenWrittenEval;
+    ['qwen', 'zhipu'].forEach(function (p) {
+      var tts = M.ls.get(p + '_tts_model', '');
+      if (tts) headers['X-' + p.charAt(0).toUpperCase() + p.slice(1) + '-Tts-Model'] = tts;
+      var reasoner = M.ls.get(p + '_reasoner_model', '');
+      if (reasoner) headers['X-' + p.charAt(0).toUpperCase() + p.slice(1) + '-Model-Reasoner'] = reasoner;
+      var chat = M.ls.get(p + '_chat_model', '');
+      if (chat) headers['X-' + p.charAt(0).toUpperCase() + p.slice(1) + '-Model-Chat'] = chat;
+      var writtenEval = M.ls.get(p + '_written_eval_model', '');
+      if (writtenEval) headers['X-' + p.charAt(0).toUpperCase() + p.slice(1) + '-Model-Written-Eval'] = writtenEval;
+    });
     return headers;
   }
 

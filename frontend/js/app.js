@@ -26,6 +26,7 @@ window.MockMate = window.MockMate || {};
       mimo_api_key: '',
       deepseek_api_key: '',
       qwen_api_key: '',
+      zhipu_api_key: '',
       provider: 'mimo',
     },
   };
@@ -61,19 +62,19 @@ window.MockMate = window.MockMate || {};
       var keys = M.state._apiKeys || {};
       var selected = keys.provider || 'mimo';
 
-      console.log('[Status]', JSON.stringify(s), 'selected=', selected, 'qwen_key=', !!keys.qwen_api_key);
+      console.log('[Status]', JSON.stringify(s), 'selected=', selected, 'zhipu_key=', !!keys.zhipu_api_key);
 
       // 按用户选择的提供商判断
-      var readyMap = { mimo: s.mimo_ready, deepseek: s.deepseek_ready, qwen: s.qwen_ready };
-      var nameMap = { mimo: 'MiMo', deepseek: 'DeepSeek', qwen: '通义千问' };
+      var readyMap = { mimo: s.mimo_ready, deepseek: s.deepseek_ready, qwen: s.qwen_ready, zhipu: s.zhipu_ready };
+      var nameMap = { mimo: 'MiMo', deepseek: 'DeepSeek', qwen: '通义千问', zhipu: '智谱' };
 
       if (readyMap[selected]) {
         dot.className = 'dot green';
         txt.textContent = (nameMap[selected] || selected) + ' 已连接';
-      } else if (s.qwen_ready || s.mimo_ready || s.deepseek_ready) {
+      } else if (s.zhipu_ready || s.qwen_ready || s.mimo_ready || s.deepseek_ready) {
         dot.className = 'dot yellow';
         // 显示哪个就绪但未选中
-        var altProvider = s.qwen_ready ? '通义千问' : (s.mimo_ready ? 'MiMo' : 'DeepSeek');
+        var altProvider = s.zhipu_ready ? '智谱' : (s.qwen_ready ? '通义千问' : (s.mimo_ready ? 'MiMo' : 'DeepSeek'));
         txt.textContent = (nameMap[selected] || selected) + ' 未就绪（' + altProvider + ' 可用）';
       } else {
         dot.className = 'dot red';
@@ -109,7 +110,7 @@ window.MockMate = window.MockMate || {};
     document.addEventListener('keydown', (e) => {
       // Alt+1/2/3/4 切换 Tab
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        const tabMap = { '1': 'setup', '2': 'interview', '3': 'history', '4': 'settings', '5': 'favorites', '6': 'custom' };
+        const tabMap = { '1': 'setup', '2': 'interview', '3': 'history', '4': 'settings', '5': 'favorites', '6': 'custom', '7': 'finetune' };
         const tab = tabMap[e.key];
         if (tab) {
           e.preventDefault();
