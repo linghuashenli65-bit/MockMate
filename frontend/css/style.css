@@ -26,6 +26,7 @@ body {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  scrollbar-gutter: stable;
 }
 
 .app { max-width: 960px; margin: 0 auto; padding: 24px 20px; }
@@ -973,4 +974,275 @@ header .user-info {
   font-size: 12px;
   color: var(--text2);
   margin-top: 4px;
+}
+
+/* ========================================
+   Favorites — 题目收藏
+   ======================================== */
+
+.fav-search-bar {
+  position: relative;
+  margin-bottom: 16px;
+}
+
+.fav-search-icon {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 15px;
+  pointer-events: none;
+  line-height: 1;
+}
+
+.fav-search-bar input {
+  padding-left: 40px;
+  height: 44px;
+  font-size: 14px;
+}
+
+/* ---- Favorite Item ---- */
+.fav-item {
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 8px;
+  border: 1px solid transparent;
+}
+
+.fav-item:hover {
+  border-color: var(--border);
+  background: var(--surface);
+}
+
+/* 题目区（始终可见） */
+.fav-item .fav-main {
+  min-width: 0;
+}
+
+.fav-item .fav-question {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 8px;
+}
+
+.fav-item .fav-info {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fav-item .fav-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.fav-item .fav-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fav-tag {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text2);
+}
+
+.fav-score {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fav-item .fav-time {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* 折叠/展开：只作用于 .fav-body，faq-main / .fav-info 始终可见 */
+.fav-item .fav-body {
+  overflow: hidden;
+  transition: max-height .35s ease;
+  max-height: 0;
+}
+
+.fav-item.expanded .fav-body {
+  max-height: 1200px;
+}
+
+.fav-item .fav-answer {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.7;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 6px;
+  margin-top: 10px;
+  border-left: 2px solid var(--green);
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.fav-item .fav-ref {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.7;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-radius: 6px;
+  margin-top: 8px;
+  border-left: 2px solid var(--accent2);
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* 收藏卡片内部滚动条统一样式 */
+.fav-item .fav-answer::-webkit-scrollbar,
+.fav-item .fav-ref::-webkit-scrollbar {
+  width: 5px;
+}
+.fav-item .fav-answer::-webkit-scrollbar-track,
+.fav-item .fav-ref::-webkit-scrollbar-track {
+  background: transparent;
+}
+.fav-item .fav-answer::-webkit-scrollbar-thumb,
+.fav-item .fav-ref::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.fav-item .fav-answer::-webkit-scrollbar-thumb:hover,
+.fav-item .fav-ref::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
+/* Firefox */
+.fav-item .fav-answer,
+.fav-item .fav-ref {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* 代码块滚动条统一样式 */
+.markdown-body pre::-webkit-scrollbar {
+  height: 5px;
+}
+.markdown-body pre::-webkit-scrollbar-track {
+  background: transparent;
+}
+.markdown-body pre::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+.markdown-body pre::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
+.markdown-body pre {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* 文本输入区滚动条统一样式 */
+textarea::-webkit-scrollbar {
+  width: 5px;
+}
+textarea::-webkit-scrollbar-track {
+  background: transparent;
+}
+textarea::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+textarea::-webkit-scrollbar-thumb:hover {
+  background: var(--text2);
+}
+textarea {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+/* 自定义题目选择面板滚动条 */
+#customQuestionSelector::-webkit-scrollbar {
+  width: 5px;
+}
+#customQuestionSelector::-webkit-scrollbar-track {
+  background: transparent;
+}
+#customQuestionSelector::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+.expand-btn {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--accent2);
+  font-size: 12px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all .2s;
+}
+
+.expand-btn:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ---- Pagination ---- */
+.fav-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 20px;
+  padding: 8px 0;
+}
+
+.page-btn {
+  min-width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .2s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 8px;
+}
+
+.page-btn:hover:not(:disabled):not(.active) {
+  background: var(--surface);
+  border-color: var(--accent2);
+}
+
+.page-btn.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.page-btn:disabled {
+  opacity: .35;
+  cursor: not-allowed;
+}
+
+.page-dots {
+  min-width: 24px;
+  text-align: center;
+  color: var(--text2);
+  font-size: 14px;
+  letter-spacing: 2px;
 }
