@@ -51,6 +51,10 @@ window.MockMate = window.MockMate || {};
     if (name === 'history') {
       setTimeout(() => M.History.loadHistory(), 50);
     }
+    // 切换到收藏时自动加载
+    if (name === 'favorites') {
+      setTimeout(() => M.Favorites.loadFavorites(1), 50);
+    }
   };
 
   // ---- 服务状态 ----
