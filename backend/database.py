@@ -146,6 +146,7 @@ class Database:
                     # 迁移：补齐缺失的索引
                     for tbl, idx, col in [
                         ("sessions", "idx_user_id", "user_id"),
+                        ("favorites", "idx_fav_user_saved", "user_id, saved_at"),
                     ]:
                         try:
                             await cur.execute(f"CREATE INDEX {idx} ON {tbl} ({col})")
@@ -296,8 +297,8 @@ class Database:
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
                 await cur.execute("""
-                    INSERT INTO favorites (session_id, question, type, difficulty, topic, user_answer, overall_score, user_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    INSERT INTO favorites (session_id, question, type, difficulty, topic, user_answer, overall_score, notes, user_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     data.get("session_id", ""),
                     data["question"],
@@ -306,28 +307,49 @@ class Database:
                     data.get("topic", ""),
                     data.get("user_answer", ""),
                     data.get("overall_score", 0),
+                    data.get("reference_answer", "") or data.get("notes", ""),
                     user_id,
                 ))
                 return cur.lastrowid
 
-    async def list_favorites(self, user_id: int = None) -> list[dict]:
-        """列出所有收藏题目（按 user_id 隔离）"""
+    async def list_favorites(self, user_id: int = None, page: int = 1, page_size: int = 10, search: str = "") -> dict:
+        """列出收藏题目（分页+搜索），返回 { items, pagination }"""
         if not self.available:
-            return await self._list_favorites_fallback()
+            items = await self._list_favorites_fallback()
+            total = len(items)
+            return {
+                "items": items,
+                "pagination": {"page": 1, "page_size": total, "total": total, "total_pages": 1},
+            }
+
+        offset = (page - 1) * page_size
         async with self.pool.acquire() as conn:
             async with conn.cursor() as cur:
-                if user_id:
-                    await cur.execute(
-                        "SELECT id, session_id, question, type, difficulty, topic, user_answer, overall_score, saved_at "
-                        "FROM favorites WHERE user_id=%s ORDER BY saved_at DESC", (user_id,)
-                    )
-                else:
-                    await cur.execute(
-                        "SELECT id, session_id, question, type, difficulty, topic, user_answer, overall_score, saved_at "
-                        "FROM favorites ORDER BY saved_at DESC"
-                    )
+                # 构建 WHERE 条件（共享参数）
+                where_parts = ["user_id=%s"]
+                params = [user_id]
+
+                if search:
+                    kw = f"%{search}%"
+                    where_parts.append("(question LIKE %s OR topic LIKE %s OR type LIKE %s)")
+                    params.extend([kw, kw, kw])
+
+                where_clause = " AND ".join(where_parts)
+
+                # 总数查询
+                await cur.execute(f"SELECT COUNT(*) FROM favorites WHERE {where_clause}", params)
+                total = (await cur.fetchone())[0]
+
+                # 数据查询
+                await cur.execute(
+                    f"SELECT id, session_id, question, type, difficulty, topic, "
+                    f"user_answer, overall_score, notes, saved_at "
+                    f"FROM favorites WHERE {where_clause} ORDER BY saved_at DESC LIMIT %s OFFSET %s",
+                    params + [page_size, offset],
+                )
                 rows = await cur.fetchall()
-                return [
+
+                items = [
                     {
                         "id": r[0],
                         "session_id": r[1],
@@ -337,10 +359,23 @@ class Database:
                         "topic": r[5],
                         "user_answer": r[6] or "",
                         "overall_score": r[7],
-                        "saved_at": r[8].isoformat() if r[8] else "",
+                        "reference_answer": r[8] or "",
+                        "saved_at": r[9].isoformat() if r[9] else "",
                     }
                     for r in rows
                 ]
+
+                total_pages = max(1, (total + page_size - 1) // page_size)
+
+                return {
+                    "items": items,
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total": total,
+                        "total_pages": total_pages,
+                    },
+                }
 
     async def delete_favorite(self, fav_id: int, user_id: int = None) -> bool:
         """删除收藏题目（校验 user_id 所有权）"""

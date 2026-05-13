@@ -603,7 +603,8 @@ window.MockMate = window.MockMate || {};
         const qObj = M.state._lastQuestion;
         const answerText = document.getElementById('answerInput')?.value?.trim() || '';
         const scoreVal = ev.overall_score ?? 0;
-        saveFavBtn.addEventListener('click', () => M.Favorites.saveCurrentQuestion(qObj, answerText, scoreVal));
+        const refAnswer = ev.reference_answer || '';
+        saveFavBtn.addEventListener('click', () => M.Favorites.saveCurrentQuestion(qObj, answerText, scoreVal, refAnswer));
       }
       btn.style.display = 'none';
     } catch(e) {

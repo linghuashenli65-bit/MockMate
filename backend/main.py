@@ -10,7 +10,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 import socket
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header
+from fastapi import FastAPI, HTTPException, UploadFile, File, Depends, Header, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
@@ -405,13 +405,24 @@ async def parse_resume(file: UploadFile = File(...), user_ai: AIClient = Depends
     if ext == ".docx":
         try:
             doc = Document(io.BytesIO(contents))
-            text = "\n".join(p.text for p in doc.paragraphs)
+            parts = [p.text for p in doc.paragraphs]
+            # 表格中的文字（中文简历常用表格排版，需处理合并单元格重复）
+            for table in doc.tables:
+                for row in table.rows:
+                    seen = set()
+                    for cell in row.cells:
+                        t = cell.text.strip()
+                        if t and t not in seen:
+                            parts.append(t)
+                            seen.add(t)
+            text = "\n".join(parts)
             if text.strip():
                 return {"text": text.strip(), "source": "docx"}
-            raise HTTPException(400, "无法从 Word 文档中提取文字")
         except Exception as e:
             logger.error(f"DOCX 解析失败: {e}")
             raise HTTPException(400, f"Word 文档解析失败: {str(e)}")
+        # 段落和表格都为空，可能是扫描件或纯图片型 DOCX
+        raise HTTPException(400, "无法从 Word 文档中提取文字，请转换为 PDF 或图片上传")
 
     if ext == ".md":
         try:
@@ -700,6 +711,9 @@ async def submit_answer(req: AnswerSubmission, user_ai: AIClient = Depends(get_u
     context = {"profile": session.get("profile", {}), "hint_used": req.hint_used}
     round_name = session.get("round", "tech_1")
     evaluation = await engine.evaluate_answer(question_text, req.answer, context, round_name, question_data=current_q)
+    logger.info(f"提交回答: session={req.session_id}, q_index={req.question_index}, "
+                f"score={evaluation.get('overall_score','?')}, "
+                f"record_id={evaluation.get('_record_id','none')}")
 
     session["history"].append({
         "q": question_text,
@@ -903,9 +917,14 @@ async def create_favorite(req: FavoriteCreate, current_user: dict = Depends(get_
     return {"id": fav_id, "message": "已收藏"}
 
 @app.get("/api/favorites")
-async def list_favorites(current_user: dict = Depends(get_current_user)):
-    """获取当前用户的收藏题目"""
-    return {"favorites": await db.list_favorites(user_id=current_user["id"])}
+async def list_favorites(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=50),
+    search: str = Query(""),
+    current_user: dict = Depends(get_current_user),
+):
+    """获取当前用户的收藏题目（支持分页和搜索）"""
+    return await db.list_favorites(user_id=current_user["id"], page=page, page_size=page_size, search=search)
 
 @app.delete("/api/favorites/{fav_id}")
 async def delete_favorite(fav_id: int, current_user: dict = Depends(get_current_user)):
