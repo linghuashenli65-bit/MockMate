@@ -13,7 +13,8 @@ frontend/
     ├── app.js              — 主入口：初始化、Tab 切换、全局状态、快捷键
     ├── api.js              — API 层（get/post/delete/upload）
     ├── utils.js            — 工具函数（esc、toast、scoreColor、ROUND_NAMES 常量）
-    ├── interview.js        — 面试流程（开始→出题→提交→评估→结束→报告）
+    ├── interview.js        — 传统面试流程（开始→出题→提交→评估→结束→报告）
+    ├── mock_interview.js   — 拟真面试全流程（WebSocket 流式出题/音频、面试官切换、评分）
     ├── research.js         — 岗位画像搜索 + 结果渲染
     ├── history.js          — 历史记录 + Chart.js 图表 + 统计摘要
     ├── favorites.js        — 题目收藏管理
@@ -28,8 +29,9 @@ frontend/
 
 ```
 utils.js  ←──  api.js  ←──  app.js  ←──  interview.js
+                                        mock_interview.js  (WebSocket)
                                         research.js
-                                        history.js  (依赖 Chart.js CDN)
+                                        history.js  (依赖 Chart.js lib)
                                         favorites.js
                                         custom.js
                                         settings.js
@@ -54,7 +56,8 @@ window.MockMate = window.MockMate || {};
 - `MockMate.API` — HTTP 请求
 - `MockMate.Auth` — 用户认证（邮箱验证码登录）
 - `MockMate.App` — 主控制器
-- `MockMate.Interview` — 面试逻辑
+- `MockMate.Interview` — 传统面试逻辑
+- `MockMate.MockInterview` — 拟真面试逻辑（WebSocket 流式）
 - `MockMate.Research` — 岗位研究
 - `MockMate.History` — 历史记录 & 图表
 - `MockMate.Favorites` — 题目收藏
@@ -76,6 +79,7 @@ window.MockMate = window.MockMate || {};
 <script src="js/app.js"></script>
 <!-- 5. 业务模块（依赖 app） -->
 <script src="js/interview.js"></script>
+<script src="js/mock_interview.js"></script>
 <script src="js/research.js"></script>
 <script src="js/history.js"></script>
 <script src="js/favorites.js"></script>
@@ -207,6 +211,14 @@ MockMate.state = {
   },
   _enableTts:           true,    // 语音播报开关
   _selectedCustomIds:   [],      // 已选的自定义题目 ID
+  // 拟真面试扩展状态
+  _mockSessionId:       null,    // 拟真面试会话 ID
+  _mockWs:              null,    // WebSocket 连接
+  _mockInterviewers:    [],      // 当前面试官列表
+  _mockCurrentStage:    null,    // 当前阶段
+  _mockInterviewerMap:  {},      // 面试官 ID → 信息
+  _mockAudioChunks:     [],      // 音频流缓冲
+  _switchInProgress:    false,   // 正在切换面试官
 };
 ```
 
@@ -229,6 +241,21 @@ MockMate.state = {
 | interview | `I.endInterview()` | 点击"结束面试" | 生成报告，清理状态 |
 | interview | `I.showReport(result)` | 收到报告 | 渲染完整报告 |
 | interview | `I.downloadReport(result)` | 点击"下载报告" | 生成 .txt 文件下载 |
+| mock | `MI.init()` | 页面加载 | 加载面试官列表，绑定事件 |
+| mock | `MI.addPresets()` | 初始化 | 添加预设面试官角色 |
+| mock | `MI.startInterview()` | 点击"开始拟真面试" | 创建 WebSocket 会话，开始面试 |
+| mock | `MI.submitAnswer()` | Ctrl+Enter / 点击提交 | 通过 WebSocket 提交回答 |
+| mock | `MI.handleWsMessage(msg)` | 收到 WS 消息 | 分发处理 question/evaluation/stage_change 等 |
+| mock | `MI.showSwitchTransition(from, to)` | 切换面试官 | 显示面试官切换动画 |
+| mock | `MI.displayQuestion(data)` | 收到题目 | 渲染题目 + 面试官卡片 + 倒计时 |
+| mock | `MI.playAudio(url)` | 收到新题 | HTTP 流式播放语音 |
+| mock | `MI._initAudioStream()` | 音频流开始 | 初始化 WebSocket 音频流播放 |
+| mock | `MI._feedAudioChunk(base64)` | 每帧音频 | 解码 base64 并喂给音频缓冲区 |
+| mock | `MI.connectWebSocket()` | 面试开始 | 建立 WebSocket 连接 |
+| mock | `MI.showMockReport(data)` | 面试结束 | 渲染拟真面试报告 |
+| mock | `MI.toggleRecording()` | 点击录音按钮 | 切换麦克风录音（语音输入） |
+| mock | `MI.startRecording()` | 录音开始 | 请求麦克风权限，开始录制 |
+| mock | `MI.stopRecording()` | 录音结束 | 停止录制，ASR 转文字填入输入框 |
 | research | `R.doResearch(refresh)` | 点击分析按钮 | 搜索岗位画像 |
 | research | `R.renderProfileCard(data)` | 搜索完成 | 渲染完整画像卡片 |
 | history | `H.loadHistory()` | 切到历史 Tab | 加载记录列表 + 图表 |
@@ -241,6 +268,7 @@ MockMate.state = {
 | settings | `S.saveMimoKey()` | 点击保存 | 更新 MiMo API Key |
 | settings | `S.saveDeepseekKey()` | 点击保存 | 更新 DeepSeek API Key |
 | settings | `S.saveQwenKey()` | 点击保存 | 更新 Qwen API Key |
+| settings | `S.saveZhipuKey()` | 点击保存 | 更新智谱 API Key |
 | settings | `S.switchProvider()` | 下拉选择 | 切换 AI 提供商 |
 | settings | `S.toggleTts()` | 开关切换 | 开启/关闭语音播报 |
 | settings | `S.updateTtsProviderInfo()` | 提供商切换 | 显示 TTS 状态 |
@@ -264,12 +292,29 @@ MockMate.state = {
 
 ## 面试流程状态机
 
+### 传统面试（HTTP 轮询）
+
 ```
 IDLE → STARTING → QUESTION → ANSWERING → EVALUATING → QUESTION (循环) → REPORT
   │                                                                    │
   └────────────────────────────────────────────────────────────────────┘
   (通过 switchTab 回到 setup)
 ```
+
+### 拟真面试（WebSocket 流式）
+
+```
+IDLE → WS_CONNECTING → WS_OPEN → QUESTION_STREAM → AUDIO_STREAM → ANSWERING
+  → EVALUATING → (switch_interviewer → QUESTION / stage_change → next stage)
+  → WRAP_UP → REPORT
+```
+
+- **WS 消息驱动**：全程通过 WebSocket 接收 question / audio_chunk / evaluation / switch_interviewer / stage_change 等消息
+- **面试官切换**：`switch_interviewer` 消息先于音频到达，触发切换动画后播新面试官语音
+- **音频流**：`audio_chunk` base64 WAV 分片实时播放，无需完整下载
+- **语音输入**：浏览器录音 → ASR API 转文字 → 填入回答输入框
+
+### 通用规则
 
 - `MockMate.state.interviewActive = true` 时阻止离开（`beforeunload` 事件）
 - 结束面试后重置状态
