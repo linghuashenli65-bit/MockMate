@@ -111,6 +111,41 @@ window.MockMate = window.MockMate || {};
         throw e;
       }
     },
+
+    // ----- 拟真面试 -----
+    async mockCreateInterviewer(data) {
+      return this.post('/api/mock/interviewers', data);
+    },
+    async mockListInterviewers() {
+      return this.get('/api/mock/interviewers');
+    },
+    async mockGetInterviewer(id) {
+      return this.get('/api/mock/interviewers/' + id);
+    },
+    async mockUpdateInterviewer(id, data) {
+      return this.put('/api/mock/interviewers/' + id, data);
+    },
+    async mockDeleteInterviewer(id) {
+      return this.delete('/api/mock/interviewers/' + id);
+    },
+    async mockStartInterview(data) {
+      return this.post('/api/mock/interview/start', data);
+    },
+    async mockSubmitAnswer(data) {
+      return this.post('/api/mock/interview/answer', data);
+    },
+    async mockEndInterview(sessionId) {
+      return this.post('/api/mock/interview/end/' + sessionId);
+    },
+    async mockGetState(sessionId) {
+      return this.get('/api/mock/interview/state/' + sessionId);
+    },
+    async mockGetReport(sessionId) {
+      return this.get('/api/mock/interview/report/' + sessionId);
+    },
+    async mockGetHistory() {
+      return this.get('/api/mock/interview/history');
+    },
   };
 
   M.API = API;

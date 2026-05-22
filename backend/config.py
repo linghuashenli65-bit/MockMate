@@ -55,7 +55,7 @@ QWEN_MODEL = "qwen-plus"
 QWEN_MODEL_REASONER = "qwen-plus"
 QWEN_MODEL_CHAT = "qwen-plus"
 QWEN_MODEL_WRITTEN_EVAL = "qwen-turbo"
-QWEN_MODEL_TTS = "cosyvoice-v1"
+QWEN_MODEL_TTS = "cosyvoice-v3.5-flash"
 
 # Zhipu (智谱) API — OpenAI 兼容接口
 ZHIPU_API_BASE = "https://open.bigmodel.cn/api/paas/v4"

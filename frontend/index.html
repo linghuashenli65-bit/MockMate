@@ -28,6 +28,7 @@
   <!-- Tab Navigation -->
   <div class="tabs">
     <button class="tab active" data-tab="setup">准备面试</button>
+    <button class="tab" data-tab="mock-interview">拟真面试</button>
     <button class="tab" data-tab="interview">模拟面试</button>
     <button class="tab" data-tab="history">历史记录</button>
     <button class="tab" data-tab="favorites">题目收藏</button>
@@ -55,40 +56,6 @@
           也支持上传简历文件（JPG/PNG/PDF/Word/Markdown）：
           <input type="file" id="resumeUpload" accept=".jpg,.jpeg,.png,.pdf,.docx,.md">
           <span id="resumeFileName" style="margin-left:6px;font-size:12px;color:var(--text2)"></span>
-        </div>
-      </div>
-
-      <div class="form-group">
-        <label>面试轮次</label>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px" id="roundSelector">
-          <label class="round-option" data-round="written">
-            <input type="radio" name="round" value="written">
-            <div>
-              <div class="round-name">笔试</div>
-              <div class="round-desc">理论基础 · 知识广度 · 客观题</div>
-            </div>
-          </label>
-          <label class="round-option" data-round="tech_1">
-            <input type="radio" name="round" value="tech_1" checked>
-            <div>
-              <div class="round-name">技术一面</div>
-              <div class="round-desc">编码实践 · 代码审查 · 工程判断</div>
-            </div>
-          </label>
-          <label class="round-option" data-round="tech_2">
-            <input type="radio" name="round" value="tech_2">
-            <div>
-              <div class="round-name">技术二面</div>
-              <div class="round-desc">架构设计 · 技术深度 · 权衡分析</div>
-            </div>
-          </label>
-          <label class="round-option" data-round="comprehensive">
-            <input type="radio" name="round" value="comprehensive">
-            <div>
-              <div class="round-name">综合面</div>
-              <div class="round-desc">领导力 · 成长思维 · 跨团队协作</div>
-            </div>
-          </label>
         </div>
       </div>
 
@@ -121,13 +88,144 @@
         准备好后点击下方按钮，AI 面试官将根据你的简历和岗位要求进行模拟面试。
       </p>
       <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
-        <button class="btn btn-primary" id="startInterviewBtn" disabled>开始模拟面试</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-primary" id="startInterviewBtn" data-disabled="true" onclick="MockMate.Interview.goToInterviewTab()">开始模拟面试</button>
+          <button class="btn btn-secondary" id="startMockInterviewBtn" data-disabled="true" onclick="MockMate.MockInterview.goToMockTab()" title="请先完成前三步：填写信息 → 岗位画像 → 简历评分">🎭 开始拟真面试</button>
+        </div>
         <label style="display:flex;align-items:center;cursor:pointer;font-size:13px;gap:8px;flex-shrink:0">
           <input type="checkbox" id="useCustomQuestions" class="custom-checkbox" style="width:auto">
           <span>使用自定义题目 <span style="font-size:11px;color:var(--text2)">（需先在「自定义题目」标签页添加）</span></span>
         </label>
       </div>
       <div id="customQuestionSelector" style="display:none;margin-top:8px;padding:10px;background:var(--surface2);border-radius:8px;max-height:200px;overflow-y:auto"></div>
+    </div>
+
+  </div>
+
+  <!-- ============ Tab: 拟真面试 ============ -->
+  <div class="tab-content" id="tab-mock-interview">
+    <!-- 面试官管理 -->
+    <div class="card" id="mockInterviewerSection">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <h2 style="margin:0">面试官角色配置</h2>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-sm btn-secondary mock-presets-btn" onclick="MockMate.MockInterview.addPresets()" title="一键添加5种典型面试官角色">+ 添加预设面试官</button>
+          <button class="btn btn-primary btn-sm" onclick="MockMate.MockInterview.showAddDialog()">+ 自定义</button>
+        </div>
+      </div>
+      <div id="mockInterviewerList" style="margin-top:12px">
+        <div class="mock-empty-state">还没有面试官，点击上方按钮添加</div>
+      </div>
+    </div>
+
+    <!-- 面试官编辑对话框 -->
+    <div class="modal-overlay" id="mockIvDialog" style="display:none">
+      <div class="modal" style="max-width:500px">
+        <h3 id="mockIvDialogTitle">添加面试官</h3>
+        <div class="form-group">
+          <label>姓名</label>
+          <input type="text" id="mockIvName" placeholder="例如：张工">
+        </div>
+        <div class="form-group">
+          <label>角色</label>
+          <input type="text" id="mockIvRole" placeholder="例如：资深工程师、技术总监、HR负责人">
+        </div>
+        <div class="form-group">
+          <label>面试风格</label>
+          <input type="text" id="mockIvStyle" placeholder="例如：严谨深入、宏观开放、温和引导">
+        </div>
+        <div class="form-group">
+          <label>考察重点（逗号分隔）</label>
+          <input type="text" id="mockIvFocus" placeholder="例如：编码能力, 项目深挖, 系统设计">
+        </div>
+        <div class="form-group">
+          <label>音色（用于语音合成）</label>
+          <input type="text" id="mockIvVoice" class="form-input"
+            placeholder="预设：稳重男声 / 阳光男声 / 温柔女声 / 知性女声 / 活泼女声，或自定义描述如：一个沉稳有力的男性中年">
+          <div style="font-size:12px;color:var(--text2);margin-top:4px">
+            支持使用自然语言描述：性别、年龄、音调、语速、情感等
+          </div>
+        </div>
+        <div class="form-group">
+          <label>自定义 Prompt（选填）</label>
+          <textarea id="mockIvPrompt" rows="3" placeholder="留空则自动生成"></textarea>
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="btn btn-secondary" onclick="MockMate.MockInterview.hideAddDialog()">取消</button>
+          <button class="btn btn-primary" id="mockIvSaveBtn" onclick="MockMate.MockInterview.saveInterviewer()">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 开始拟真面试 -->
+    <div class="card" id="mockStartSection">
+      <h2>开始拟真面试</h2>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
+        选择参与面试的面试官，系统将模拟多位面试官轮流提问的真实场景。
+      </p>
+      <div id="mockInterviewerSelect" style="margin-bottom:12px">
+        <div class="mock-empty-state">请先在上方添加面试官</div>
+      </div>
+      <div class="form-group">
+        <label>时长控制（分钟）</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input type="range" id="mockDurationRange" min="15" max="60" value="40" style="flex:1">
+          <span id="mockDurationLabel" style="font-size:14px;font-weight:600;min-width:40px">40</span>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="mockStartBtn" onclick="MockMate.MockInterview.startInterview()" disabled title="请先在上方添加面试官">开始拟真面试</button>
+
+      <!-- 语音测试（面试开始前验证语音合成） -->
+      <div class="mock-vtf" id="mockVtf" style="position:static;margin-top:16px;flex-direction:row;gap:12px">
+        <div class="mock-vtf-btn" id="mockVtfBtn" style="width:44px;height:44px">
+          <span class="mock-vtf-icon" id="mockVtfIcon">🔊</span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <div style="font-size:13px;color:var(--text2)">语音功能测试</div>
+          <div class="mock-vtf-hint" id="mockVtfHint" style="position:static;margin:0;font-size:12px">点击播放测试语音 · 长按录音识别</div>
+          <div class="mock-vtf-feedback" id="mockVtfFeedback" style="position:static;margin:0;opacity:0">测试结果</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 拟真面试会话界面（全屏沉浸） -->
+    <div id="mockSessionSection">
+      <!-- 顶部状态栏 64px -->
+      <div class="mock-topbar">
+        <div class="mock-topbar-left">
+          <span class="mock-brand">MockMate</span>
+          <span class="mock-divider">｜</span>
+          <span class="mock-position" id="mockPositionLabel">技术面试</span>
+        </div>
+        <div class="mock-topbar-center"></div>
+        <div class="mock-topbar-right">
+          <span class="mock-countdown" id="mockTimer">00:00:00</span>
+          <button class="mock-end-btn" id="mockEndBtn" onclick="MockMate.MockInterview.endInterview()" style="margin-left:24px">结束面试</button>
+        </div>
+      </div>
+
+      <!-- 主要内容 -->
+      <div class="mock-main">
+        <!-- 面试官席位区 140px -->
+        <div class="mock-panel" id="mockPanel"></div>
+
+        <!-- 问题区（视觉绝对中心） -->
+        <div class="mock-question-area" id="mockQuestionArea">
+          <div class="mock-question-text" id="mockQuestionText" style="display:none"></div>
+        </div>
+
+        <!-- 输入区 -->
+        <div class="mock-input-area" id="mockInputArea">
+          <textarea id="mockAnswerInput" placeholder="沉稳作答..." rows="4"></textarea>
+          <div class="mock-input-actions">
+            <button class="mock-voice-btn" id="mockVoiceBtn" onclick="MockMate.MockInterview.toggleRecording()">🎤</button>
+            <button class="mock-submit-btn" id="mockSubmitBtn" onclick="MockMate.MockInterview.submitAnswer()">提交回答</button>
+            <span class="mock-submit-hint" id="mockSubmitHint"></span>
+          </div>
+          <div class="mock-recording-status" id="mockRecordingStatus" style="font-size:12px;color:#8B94A7;margin-top:4px;text-align:center"></div>
+          <div class="mock-anti-chat" id="mockAntiChat" style="opacity:0"></div>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -141,10 +239,44 @@
         <span id="ttsToggle" style="font-size:12px;cursor:pointer;padding:2px 8px;border-radius:4px;border:1px solid var(--border);user-select:none" onclick="MockMate.Interview.toggleTts()" title="点击切换语音播报">🔊 语音开</span>
         <button class="btn btn-danger btn-sm" id="endInterviewBtn">结束面试</button>
       </div>
+      <div id="preInterviewConfig" style="margin-bottom:16px">
+        <h3 style="margin:0 0 8px 0;font-size:15px">面试轮次</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px" id="roundSelector">
+          <label class="round-option" data-round="written">
+            <input type="radio" name="round" value="written">
+            <div>
+              <div class="round-name">笔试</div>
+              <div class="round-desc">理论基础 · 知识广度 · 客观题</div>
+            </div>
+          </label>
+          <label class="round-option" data-round="tech_1">
+            <input type="radio" name="round" value="tech_1" checked>
+            <div>
+              <div class="round-name">技术一面</div>
+              <div class="round-desc">编码实践 · 代码审查 · 工程判断</div>
+            </div>
+          </label>
+          <label class="round-option" data-round="tech_2">
+            <input type="radio" name="round" value="tech_2">
+            <div>
+              <div class="round-name">技术二面</div>
+              <div class="round-desc">架构设计 · 技术深度 · 权衡分析</div>
+            </div>
+          </label>
+          <label class="round-option" data-round="comprehensive">
+            <input type="radio" name="round" value="comprehensive">
+            <div>
+              <div class="round-name">综合面</div>
+              <div class="round-desc">领导力 · 成长思维 · 跨团队协作</div>
+            </div>
+          </label>
+        </div>
+        <button class="btn btn-primary" id="startInterviewFromTabBtn" data-disabled="true" style="margin-top:12px;width:100%" onclick="MockMate.Interview.startInterview()">开始面试</button>
+      </div>
       <div class="interview-area" id="interviewArea">
         <div class="empty-state">
-          还没有开始面试<br>
-          <span style="font-size:13px">先去「准备面试」标签页填写信息</span>
+          请先完成准备<br>
+          <span style="font-size:13px">在「准备面试」标签页填写信息、生成岗位画像、完成简历评分</span>
         </div>
       </div>
     </div>
@@ -385,15 +517,16 @@
 <!-- Toast -->
 <div class="toast" id="toast"></div>
 
-<!-- Markdown & Chart.js CDN -->
-<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<!-- Markdown & Chart.js 本地加载（避免 CDN 在国内不可用） -->
+<script src="/lib/marked.min.js"></script>
+<script src="/lib/chart.umd.min.js"></script>
 
 <!-- Application Scripts -->
 <script src="js/utils.js"></script>
 <script src="js/api.js"></script>
 <script src="js/app.js"></script>
 <script src="js/interview.js"></script>
+<script src="js/mock_interview.js"></script>
 <script src="js/research.js"></script>
 <script src="js/history.js"></script>
 <script src="js/favorites.js"></script>

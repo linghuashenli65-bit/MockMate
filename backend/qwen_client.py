@@ -137,10 +137,21 @@ class QwenClient:
             logger.error(f"Qwen 图片识别失败: {e}")
             return None
 
-    async def text_to_speech(self, text: str) -> Optional[bytes]:
+    # CosyVoice 音色映射
+    _QWEN_VOICE_MAP = {
+        "稳重男声": "longyue",
+        "阳光男声": "longchen",
+        "温柔女声": "longxiaochun",
+        "知性女声": "longwan",
+        "活泼女声": "longxiaomo",
+        "默认": "longxiaochun",
+    }
+
+    async def text_to_speech(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
         """调用语音合成（使用 self.tts_model，可通过请求头覆盖）"""
         if not self.ready:
             return None
+        voice_id = self._QWEN_VOICE_MAP.get(voice or "", "longxiaochun")
         try:
             resp = await self._client.post(
                 "/v1/audio/speech",
@@ -148,7 +159,7 @@ class QwenClient:
                 json={
                     "model": self.tts_model,
                     "input": text,
-                    "voice": "longxiaochun",
+                    "voice": voice_id,
                     "response_format": "wav",
                 },
                 timeout=60.0,
@@ -156,7 +167,30 @@ class QwenClient:
             resp.raise_for_status()
             return resp.content
         except Exception as e:
-            logger.error(f"Qwen TTS 失败 (model={self.tts_model}): {e}")
+            logger.error(f"Qwen TTS 失败 (model={self.tts_model} voice={voice_id}): {e}")
+            return None
+
+    async def speech_to_text(self, audio_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+        """语音识别：音频转文字（使用 Paraformer 模型）"""
+        if not self.ready:
+            return None
+        try:
+            files = {
+                "file": (filename, audio_bytes, "audio/wav"),
+            }
+            data = {"model": "paraformer-realtime-v2"}
+            resp = await self._client.post(
+                "/audio/transcriptions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                files=files,
+                data=data,
+                timeout=60.0,
+            )
+            resp.raise_for_status()
+            result = resp.json()
+            return result.get("text", "")
+        except Exception as e:
+            logger.error(f"Qwen ASR 失败: {e}")
             return None
 
     async def close(self):

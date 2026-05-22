@@ -75,9 +75,45 @@ class MiMoClient:
             logger.error(f"MiMo chat error: {e}")
             return None
 
+    async def stream_chat(self, model: str, messages: list, **kwargs):
+        """流式聊天：返回 async generator，逐 token 产出内容"""
+        if not self.ready:
+            return
+        try:
+            async with self._client.stream(
+                "POST",
+                "/chat/completions",
+                headers=self._headers(),
+                json={"model": model, "messages": messages, "stream": True, **kwargs},
+            ) as resp:
+                resp.raise_for_status()
+                buffer = ""
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[6:].strip()
+                    if payload == "[DONE]":
+                        break
+                    try:
+                        import json as _json
+                        chunk = _json.loads(payload)
+                        delta = chunk.get("choices", [{}])[0].get("delta", {})
+                        content = delta.get("content", "")
+                        if content:
+                            yield content
+                    except Exception:
+                        continue
+        except Exception as e:
+            logger.error(f"MiMo stream_chat error: {e}")
+
     async def reason(self, messages: list, **kwargs) -> Optional[str]:
         """调用推理模型"""
         return await self.chat(MIMO_MODEL_REASONING, messages, **kwargs)
+
+    async def stream_reason(self, messages: list, **kwargs):
+        """流式推理"""
+        async for token in self.stream_chat(MIMO_MODEL_REASONING, messages, **kwargs):
+            yield token
 
     async def chat_standard(self, messages: list, **kwargs) -> Optional[str]:
         """标准对话（非推理），复用推理模型"""
@@ -122,10 +158,20 @@ class MiMoClient:
             logger.error(f"MiMo image extraction error: {e}")
             return None
 
-    async def text_to_speech(self, text: str) -> Optional[bytes]:
+    _MIMO_VOICE_MAP = {
+        "稳重男声": "mimo_default",
+        "阳光男声": "mimo_default",
+        "温柔女声": "mimo_default",
+        "知性女声": "mimo_default",
+        "活泼女声": "mimo_default",
+        "默认": "mimo_default",
+    }
+
+    async def text_to_speech(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
         """语音合成：文字转语音（MiMo TTS 使用 chat completions 接口）"""
         if not self.ready:
             return None
+        voice_id = self._MIMO_VOICE_MAP.get(voice or "", "mimo_default")
         try:
             resp = await self._client.post(
                 "/chat/completions",
@@ -138,7 +184,7 @@ class MiMoClient:
                     ],
                     "audio": {
                         "format": "wav",
-                        "voice": "mimo_default",
+                        "voice": voice_id,
                     },
                 },
             )
@@ -158,6 +204,10 @@ class MiMoClient:
         except Exception as e:
             logger.warning(f"MiMo TTS 调用失败: {e}")
             return None
+
+    async def speech_to_text(self, audio_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+        """语音识别（MiMo 暂不支持，返回 None 触发 fallback）"""
+        return None
 
     async def close(self):
         if self._owns_client:

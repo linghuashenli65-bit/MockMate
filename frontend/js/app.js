@@ -11,6 +11,7 @@ window.MockMate = window.MockMate || {};
     currentSessionId: null,
     currentQuestionIndex: 0,
     interviewActive: false,
+    mockInterviewActive: false,
     interviewStartTime: null,
     timerInterval: null,
     isWrittenRound: false,
@@ -37,6 +38,18 @@ window.MockMate = window.MockMate || {};
     if (M.state.interviewActive && name !== 'interview') {
       if (!confirm('面试进行中，切换页面将中断面试，确定吗？')) return;
       M.Interview.cleanup();
+    }
+    if (M.state.mockInterviewActive && name !== 'mock-interview') {
+      if (!confirm('拟真面试进行中，切换页面将中断面试，确定吗？')) return;
+      if (typeof MockMate.MockInterview.doEndInterview === 'function') {
+        MockMate.MockInterview.doEndInterview();
+      }
+    }
+
+    // 拟真面试结束后，切换标签页时退出全屏覆盖
+    if (!M.state.mockInterviewActive) {
+      var sess = document.getElementById('mockSessionSection');
+      if (sess) sess.classList.remove('active');
     }
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -114,7 +127,7 @@ window.MockMate = window.MockMate || {};
     document.addEventListener('keydown', (e) => {
       // Alt+1/2/3/4 切换 Tab
       if (e.altKey && !e.ctrlKey && !e.metaKey) {
-        const tabMap = { '1': 'setup', '2': 'interview', '3': 'history', '4': 'settings', '5': 'favorites', '6': 'custom', '7': 'finetune' };
+        const tabMap = { '1': 'setup', '2': 'mock-interview', '3': 'interview', '4': 'history', '5': 'favorites', '6': 'custom', '7': 'finetune', '8': 'settings' };
         const tab = tabMap[e.key];
         if (tab) {
           e.preventDefault();
@@ -241,7 +254,7 @@ window.MockMate = window.MockMate || {};
 
     // 面试中离开保护
     window.addEventListener('beforeunload', (e) => {
-      if (M.state.interviewActive) {
+      if (M.state.interviewActive || M.state.mockInterviewActive) {
         M.saveFormMemory();
         e.preventDefault();
         e.returnValue = '';
@@ -268,6 +281,7 @@ window.MockMate = window.MockMate || {};
     // 绑定各个模块的事件
     M.Research.init();
     M.Interview.init();
+    M.MockInterview.init();
     M.History.init();
     M.Favorites.init();
     M.Custom.init();

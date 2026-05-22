@@ -11,10 +11,9 @@ window.MockMate = window.MockMate || {};
   // ---- 初始化事件绑定 ----
   I.init = function () {
     var ok = true;
-    ['startInterviewBtn','endInterviewBtn','resumeUpload','scoreResumeBtn','resumeInput'].forEach(function(id) {
+    ['startInterviewBtn','startInterviewFromTabBtn','endInterviewBtn','resumeUpload','scoreResumeBtn','resumeInput'].forEach(function(id) {
       if (!document.getElementById(id)) { console.warn('MockMate: missing element', id); ok = false; }
     });
-    document.getElementById('startInterviewBtn').addEventListener('click', I.startInterview);
     document.getElementById('endInterviewBtn').addEventListener('click', I.endInterview);
     document.getElementById('resumeUpload').addEventListener('change', I.handleResumeUpload);
     document.getElementById('scoreResumeBtn').addEventListener('click', I.scoreResume);
@@ -45,7 +44,11 @@ window.MockMate = window.MockMate || {};
   I.clearScore = function () {
     M.state._resumeScore = null;
     document.getElementById('scoreResult').innerHTML = '';
-    document.getElementById('startInterviewBtn').disabled = true;
+    document.getElementById('startInterviewBtn').setAttribute('data-disabled', 'true');
+    var tabBtn = document.getElementById('startInterviewFromTabBtn');
+    if (tabBtn) tabBtn.setAttribute('data-disabled', 'true');
+    var mockBtn = document.getElementById('startMockInterviewBtn');
+    if (mockBtn) mockBtn.setAttribute('data-disabled', 'true');
   };
 
   I.scoreResume = async function () {
@@ -62,11 +65,15 @@ window.MockMate = window.MockMate || {};
       const result = await M.API.post('/api/resume/score', { resume, profile });
       M.state._resumeScore = result;
       I.renderScore(result);
-      if (result.score >= 70) {
-        document.getElementById('startInterviewBtn').disabled = false;
+      var canStart = result.score >= 70;
+      document.getElementById('startInterviewBtn').setAttribute('data-disabled', canStart ? 'false' : 'true');
+      var tabBtn = document.getElementById('startInterviewFromTabBtn');
+      if (tabBtn) tabBtn.setAttribute('data-disabled', canStart ? 'false' : 'true');
+      var mockBtn = document.getElementById('startMockInterviewBtn');
+      if (mockBtn) mockBtn.setAttribute('data-disabled', canStart ? 'false' : 'true');
+      if (canStart) {
         M.toast('简历评分 ' + result.score + ' 分，可以开始面试');
       } else {
-        document.getElementById('startInterviewBtn').disabled = true;
         M.toast('简历评分 ' + result.score + ' 分，建议优化后再面试');
       }
     } catch(e) {
@@ -244,6 +251,16 @@ window.MockMate = window.MockMate || {};
     M.toast('面试已恢复，继续作答');
   };
 
+  // ---- 从准备页面跳转到模拟面试页 ----
+  I.goToInterviewTab = function () {
+    // 切换标签页，让用户选择轮次后点击「开始面试」
+    M.switchTab('interview');
+    // 隐藏空状态提示（轮次选择和开始按钮已足够引导）
+    var area = document.getElementById('interviewArea');
+    if (area) area.innerHTML = '';
+    document.getElementById('startInterviewFromTabBtn').scrollIntoView({ behavior: 'smooth' });
+  };
+
   // ---- 开始面试 ----
   I.startInterview = async function () {
     const resume = document.getElementById('resumeInput').value.trim();
@@ -264,14 +281,17 @@ window.MockMate = window.MockMate || {};
       return;
     }
 
+    // 隐藏面试前面的轮次选择配置
+    var preConfig = document.getElementById('preInterviewConfig');
+    if (preConfig) preConfig.style.display = 'none';
+
     const selectedRound = document.querySelector('input[name="round"]:checked')?.value || 'tech_1';
     const isWritten = selectedRound === 'written';
-    const btn = document.getElementById('startInterviewBtn');
+    const btn = document.getElementById('startInterviewFromTabBtn');
 
     // 笔试：显示全屏加载动画
     if (isWritten) {
-      M.switchTab('interview');
-      const area = document.getElementById('interviewArea');
+      var area = document.getElementById('interviewArea');
       area.innerHTML =
         '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">' +
           '<div class="spinner" style="width:48px;height:48px;border-width:5px"></div>' +
@@ -281,7 +301,17 @@ window.MockMate = window.MockMate || {};
         '</div>';
       document.getElementById('roundLabel').textContent = M.ROUND_NAMES.written;
     } else {
-      M.setBtnLoading(btn, true, '正在准备面试...');
+      // 面试区显示加载动画
+      var area = document.getElementById('interviewArea');
+      if (area) {
+        area.innerHTML =
+          '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:300px">' +
+            '<div class="spinner" style="width:48px;height:48px;border-width:5px"></div>' +
+            '<div style="margin-top:20px;font-size:16px;font-weight:600;color:var(--text)">正在准备面试...</div>' +
+            '<div style="margin-top:8px;font-size:13px;color:var(--text2)">AI 正在根据你的简历生成题目</div>' +
+          '</div>';
+      }
+      document.getElementById('roundLabel').textContent = M.ROUND_NAMES[selectedRound] || selectedRound;
     }
 
     try {
@@ -311,13 +341,10 @@ window.MockMate = window.MockMate || {};
       document.getElementById('roundLabel').textContent =
         M.ROUND_NAMES[result.round] || result.round;
 
-      // 切换到面试 Tab
-      if (!isWritten) M.switchTab('interview');
-
       I.showQuestion(result.question, 0, result.audio_url);
       M.toast('面试已开始');
     } catch(e) {
-      if (!isWritten) M.setBtnLoading(btn, false, '开始模拟面试');
+      if (!isWritten && btn) M.setBtnLoading(btn, false, '开始面试');
       M.toast('启动面试失败: ' + e.message);
     }
   };
@@ -937,9 +964,13 @@ window.MockMate = window.MockMate || {};
     M.state.suspendedQuestions = [];
     M.ls.remove('active_session');
 
+    // 恢复轮次选择配置
+    var preConfig = document.getElementById('preInterviewConfig');
+    if (preConfig) preConfig.style.display = '';
+
     // 恢复开始面试按钮
-    const btn = document.getElementById('startInterviewBtn');
-    if (btn) M.setBtnLoading(btn, false);
+    var tabBtn = document.getElementById('startInterviewFromTabBtn');
+    if (tabBtn) M.setBtnLoading(tabBtn, false);
   };
 
   // ---- 导出 ----

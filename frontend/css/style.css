@@ -128,13 +128,16 @@ header .status { display: flex; align-items: center; gap: 8px; font-size: 13px; 
 
 .btn-primary { background: var(--accent); color: #fff; }
 .btn-primary:hover { background: var(--accent2); }
-.btn-primary:disabled { opacity: .4; cursor: not-allowed; }
 
 .btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
 .btn-secondary:hover { background: var(--border); }
 
 .btn-danger { background: var(--red); color: #fff; }
 .btn-danger:hover { opacity: .85; }
+
+/* 禁用状态：同时支持原生 disabled 和自定义 data-disabled */
+.btn:disabled { opacity: .4; cursor: not-allowed; pointer-events: none; }
+.btn[data-disabled="true"] { opacity: .4; cursor: not-allowed; }
 
 .btn-sm { padding: 6px 14px; font-size: 12px; min-height: 32px; }
 
@@ -1245,4 +1248,830 @@ textarea {
   color: var(--text2);
   font-size: 14px;
   letter-spacing: 2px;
+}
+
+/* -------- Modal / 对话框 -------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  background: rgba(0,0,0,0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px 28px;
+  width: 100%;
+  max-width: 500px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+}
+
+.modal h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 18px;
+  color: var(--text);
+}
+
+/* ========================================
+   拟真面试专属样式
+   ======================================== */
+
+/* -- 面试官卡片网格容器 -- */
+#mockInterviewerList {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}
+
+/* -- 面试官卡片（管理列表） -- */
+.mock-iv-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  transition: border-color .2s, background .2s, transform .2s;
+}
+
+.mock-iv-card:hover {
+  border-color: var(--accent2);
+  transform: translateY(-1px);
+}
+
+/* -- CSS 首字头像（替代 emoji） -- */
+.mock-iv-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+/* -- 卡片信息区 -- */
+.mock-iv-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.mock-iv-name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text);
+}
+
+.mock-iv-role {
+  font-size: 12px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+/* -- 考察维度 tag（用现有 focus_area split） -- */
+.mock-iv-tags {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.mock-iv-tag {
+  display: inline-block;
+  background: var(--surface);
+  color: var(--accent2);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+/* -- 操作按钮 -- */
+.mock-iv-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+  align-items: flex-start;
+}
+
+/* -- 选择面试官区域（网格布局，自动居中） -- */
+#mockInterviewerSelect {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, 280px);
+  justify-content: center;
+  gap: 8px;
+}
+
+/* -- 选择面试官卡片（整个卡片可点击） -- */
+.mock-iv-select-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface2);
+  border: 2px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color .2s, background .2s, transform .2s;
+  position: relative;
+}
+
+.mock-iv-select-item:hover {
+  border-color: var(--accent2);
+  transform: translateY(-1px);
+}
+
+.mock-iv-select-item.selected {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+
+/* 选中勾 */
+.mock-iv-select-item .check-mark {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 14px;
+  display: none;
+}
+
+.mock-iv-select-item.selected .check-mark {
+  display: inline;
+}
+
+/* 隐藏原生 checkbox */
+.mock-iv-select-item input[type="checkbox"] {
+  display: none;
+}
+
+/* -- 时长滑块美化 -- */
+#mockDurationRange {
+  -webkit-appearance: none;
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  outline: none;
+  border: none;
+  padding: 0;
+}
+
+#mockDurationRange::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+}
+
+/* -- 空状态 -- */
+.mock-empty-state {
+  text-align: center;
+  padding: 32px 16px;
+  color: var(--text2);
+  font-size: 13px;
+}
+
+.mock-empty-state .btn {
+  margin-top: 8px;
+}
+
+/* -- 开始面试区域强化（视觉中心） -- */
+#mockStartSection {
+  border-left: 3px solid var(--accent);
+}
+
+#mockStartSection h2 {
+  color: var(--accent2) !important;
+}
+
+/* -- 按钮真 disabled 状态 -- */
+button:disabled,
+.btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* -- 移动端 -- */
+@media (max-width: 768px) {
+  #mockInterviewerList {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ========================================
+   拟真面试 · 沉浸会话 UI（终版）
+   多面试官联合压迫式技术面试
+   ======================================== */
+
+/* -- 全局背景 -- */
+#mockSessionSection {
+  display: none;
+  position: fixed;
+  top: 0; left: 0;
+  width: 100vw; height: 100vh;
+  background: #0D0F16;
+  z-index: 100;
+  flex-direction: column;
+}
+#mockSessionSection.active {
+  display: flex;
+}
+
+/* -- 顶部状态栏 64px -- */
+.mock-topbar {
+  display: flex;
+  align-items: center;
+  height: 64px;
+  padding: 0 32px;
+  flex-shrink: 0;
+  border-bottom: 1px solid #252B3B;
+}
+
+.mock-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.mock-brand {
+  font-size: 18px;
+  font-weight: 600;
+  color: #F3F6FB;
+  white-space: nowrap;
+}
+
+.mock-divider {
+  font-size: 14px;
+  color: #5C6372;
+}
+
+.mock-position {
+  font-size: 14px;
+  color: #8B94A7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mock-topbar-center {
+  flex: 1;
+}
+
+.mock-topbar-right {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+/* -- 倒计时 -- */
+.mock-countdown {
+  font-family: 'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 22px;
+  font-weight: 600;
+  color: #F3F6FB;
+  font-variant-numeric: tabular-nums;
+  transition: color .5s;
+}
+
+.mock-countdown.warning {
+  color: #F59E0B;
+  animation: mock-breath 2.8s ease-in-out infinite;
+}
+
+@keyframes mock-breath {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .82; }
+}
+
+/* -- 结束面试按钮 -- */
+.mock-end-btn {
+  background: none;
+  border: 1px solid #252B3B;
+  color: #8B94A7;
+  padding: 8px 20px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all .2s;
+  min-height: 36px;
+}
+.mock-end-btn:hover {
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* -- 主要内容（flex 列，填满剩余空间） -- */
+.mock-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* -- 面试官席位区（两排卡片） -- */
+.mock-panel {
+  min-height: 200px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  flex-shrink: 0;
+  padding: 16px 32px;
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+/* -- 面试官卡片（沉浸式面板） -- */
+.mock-panel-card {
+  width: 260px;
+  height: 150px;
+  flex-shrink: 0;
+  background: #151922;
+  border: 1px solid #252B3B;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all .4s ease;
+  position: relative;
+}
+
+.mock-panel-card-badge {
+  display: none;
+  font-size: 11px;
+  color: #6D5BFF;
+  position: absolute;
+  top: 8px;
+  left: 10px;
+  letter-spacing: .3px;
+}
+
+.mock-panel-card.current .mock-panel-card-badge {
+  display: block;
+}
+
+.mock-iv-card-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: #F3F6FB;
+  line-height: 1.3;
+}
+
+.mock-iv-card-role {
+  font-size: 14px;
+  color: #8B94A7;
+  line-height: 1.3;
+}
+
+.mock-iv-card-status {
+  font-size: 13px;
+  color: #5C6372;
+  line-height: 1.3;
+  margin-top: 4px;
+}
+
+.mock-panel-card.current .mock-iv-card-status {
+  color: #6D5BFF;
+}
+
+/* -- 当前发言卡片 -- */
+.mock-panel-card.current {
+  border-color: #6D5BFF;
+  box-shadow:
+    0 0 0 1px rgba(109,91,255,.25),
+    0 0 24px rgba(109,91,255,.12);
+  animation: mock-card-breath 2.8s ease-in-out infinite;
+}
+
+@keyframes mock-card-breath {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(109,91,255,.25),
+      0 0 12px rgba(109,91,255,.08);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(109,91,255,.25),
+      0 0 24px rgba(109,91,255,.12);
+  }
+}
+
+/* -- 退出发言卡片 -- */
+.mock-panel-card.exiting {
+  border-color: #252B3B;
+  box-shadow: none;
+  animation: none;
+}
+.mock-panel-card.exiting .mock-iv-card-status {
+  color: #5C6372;
+}
+.mock-panel-card.exiting .mock-panel-card-badge {
+  display: none;
+}
+
+/* -- 语音呼吸灯（当前发言面试官卡片） -- */
+.mock-panel-card.speaking {
+  border-color: #00E5A0;
+  box-shadow:
+    0 0 0 1px rgba(0,229,160,.3),
+    0 0 32px rgba(0,229,160,.2),
+    0 0 60px rgba(0,229,160,.08);
+  animation: mock-speak-breath 1.2s ease-in-out infinite;
+}
+
+@keyframes mock-speak-breath {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(0,229,160,.3),
+      0 0 20px rgba(0,229,160,.15),
+      0 0 40px rgba(0,229,160,.05);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(0,229,160,.4),
+      0 0 40px rgba(0,229,160,.25),
+      0 0 80px rgba(0,229,160,.12);
+  }
+}
+.mock-panel-card.speaking .mock-iv-card-status {
+  color: #00E5A0;
+}
+
+/* 卡片手动播放按钮（自动播放被阻止时出现） */
+.mock-card-play-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid #252B3B;
+  background: rgba(21, 25, 34, 0.9);
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  z-index: 2;
+  padding: 0;
+  line-height: 1;
+}
+.mock-card-play-btn:hover {
+  border-color: #6D5BFF;
+  background: rgba(21, 25, 34, 1);
+}
+
+/* 音色徽标 */
+.mock-iv-voice-badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(139, 148, 167, 0.15);
+  color: #8B94A7;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+/* -- 问题区（视觉绝对中心） -- */
+.mock-question-area {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px 32px 20px;
+}
+
+.mock-question-text {
+  max-width: 980px;
+  width: 100%;
+  font-size: 28px;
+  font-weight: 600;
+  line-height: 1.6;
+  letter-spacing: .3px;
+  color: #F3F6FB;
+  text-align: left;
+  animation: mock-fade-up .4s ease;
+}
+
+/* -- 思考态 -- */
+.mock-thinking {
+  font-size: 18px;
+  color: #8B94A7;
+  text-align: center;
+  animation: mock-fade-in .3s ease;
+}
+
+.thinking-dots {
+  display: inline-block;
+  min-width: 1.5em;
+  text-align: left;
+}
+
+/* 面试官切换过渡文字 */
+.mock-switch-text {
+  font-size: 20px;
+  color: #8B94A7;
+  font-style: italic;
+  text-align: center;
+  animation: mock-fade-in .5s ease;
+}
+
+/* -- 输入区 -- */
+.mock-input-area {
+  width: 760px;
+  margin: 0 auto 40px;
+  flex-shrink: 0;
+}
+
+.mock-input-area textarea {
+  width: 100%;
+  height: 160px;
+  padding: 16px;
+  background: #121722;
+  border: 1px solid #252B3B;
+  border-radius: 8px;
+  color: #F3F6FB;
+  font-size: 15px;
+  font-family: inherit;
+  resize: none;
+  outline: none;
+  transition: border-color .2s, background .3s;
+  line-height: 1.5;
+  box-sizing: border-box;
+}
+
+.mock-input-area textarea::placeholder {
+  color: #5C6372;
+}
+
+.mock-input-area textarea:focus {
+  border-color: #6D5BFF;
+}
+
+.mock-input-area textarea:read-only {
+  background: #10141D;
+}
+
+.mock-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  justify-content: flex-end;
+}
+
+.mock-voice-btn {
+  background: none;
+  border: 1px solid #252B3B;
+  color: #8B94A7;
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .2s;
+  flex-shrink: 0;
+}
+.mock-voice-btn:hover {
+  border-color: #6D5BFF;
+}
+
+.mock-submit-btn {
+  width: 96px;
+  height: 36px;
+  background: #6D5BFF;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all .2s;
+  flex-shrink: 0;
+}
+.mock-submit-btn:hover {
+  background: #7c6cff;
+}
+.mock-submit-btn:disabled {
+  opacity: .4;
+  cursor: not-allowed;
+}
+.mock-submit-btn.submitted {
+  background: #252B3B;
+  color: #8B94A7;
+}
+.mock-submit-btn.submitted:hover {
+  background: #2f3649;
+}
+
+.mock-submit-hint {
+  font-size: 13px;
+  color: #8B94A7;
+}
+
+/* -- 防闲聊提示 -- */
+.mock-anti-chat {
+  font-size: 13px;
+  color: #8B94A7;
+  margin-top: 4px;
+  transition: opacity .3s;
+  text-align: center;
+}
+
+/* -- 报告页 -- */
+.mock-report-container {
+  padding: 40px;
+  max-width: 800px;
+  width: 100%;
+  margin: 0 auto;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* -- 动画 -- */
+@keyframes mock-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mock-fade-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* -- 响应式 -- */
+@media (max-width: 768px) {
+  .mock-question-text {
+    font-size: 28px;
+  }
+  .mock-input-area {
+    width: 100%;
+    padding: 0 16px;
+    box-sizing: border-box;
+  }
+  .mock-countdown {
+    font-size: 18px;
+  }
+  .mock-panel-card {
+    width: 180px;
+    height: 120px;
+  }
+  .mock-iv-card-name {
+    font-size: 15px;
+  }
+  .mock-iv-card-role {
+    font-size: 13px;
+  }
+  .mock-topbar {
+    padding: 0 16px;
+  }
+  .mock-panel {
+    padding: 0 16px;
+    gap: 12px;
+  }
+  .mock-position {
+    max-width: 120px;
+  }
+  .mock-vtf { bottom: 12px; right: 12px; }
+  .mock-vtf-btn { width: 44px; height: 44px; font-size: 18px; }
+  .mock-vtf-hint { display: none; }
+}
+
+/* ==================== 语音测试浮动按钮 ==================== */
+
+.mock-vtf {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  z-index: 50;
+  user-select: none;
+}
+
+.mock-vtf-btn {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(40, 44, 56, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform .2s, box-shadow .2s, background .3s;
+  position: relative;
+}
+
+.mock-vtf-btn:hover {
+  transform: scale(1.08);
+  background: rgba(60, 64, 80, 0.9);
+  box-shadow: 0 6px 28px rgba(0, 0, 0, 0.5);
+}
+
+.mock-vtf-btn:active {
+  transform: scale(0.95);
+}
+
+.mock-vtf-icon {
+  font-size: 22px;
+  line-height: 1;
+  pointer-events: none;
+}
+
+.mock-vtf-hint {
+  font-size: 11px;
+  color: rgba(139, 148, 167, 0.7);
+  margin-top: 6px;
+  white-space: nowrap;
+  transition: opacity .3s;
+  pointer-events: none;
+}
+
+/* 录音中状态 */
+.mock-vtf.recording .mock-vtf-btn {
+  background: rgba(220, 50, 50, 0.85);
+  animation: mock-vtf-pulse 0.8s ease-in-out infinite;
+  box-shadow: 0 0 24px rgba(220, 50, 50, 0.4);
+}
+
+.mock-vtf.recording .mock-vtf-hint {
+  color: rgba(255, 100, 100, 0.8);
+}
+
+.mock-vtf.recording .mock-vtf-icon {
+  animation: mock-vtf-wave 0.6s ease-in-out infinite;
+}
+
+/* 测试中（TTS 或 ASR 处理中） */
+.mock-vtf.testing .mock-vtf-btn {
+  background: rgba(0, 200, 140, 0.7);
+  pointer-events: none;
+}
+
+/* 反馈文字 */
+.mock-vtf-feedback {
+  font-size: 12px;
+  margin-top: 6px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity .3s;
+  position: absolute;
+  bottom: -28px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+.mock-vtf-feedback.show {
+  opacity: 1;
+}
+
+.mock-vtf-feedback.success { color: #00E5A0; }
+.mock-vtf-feedback.error { color: #FF6B6B; }
+.mock-vtf-feedback.info { color: #8B94A7; }
+
+@keyframes mock-vtf-pulse {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(220, 50, 50, 0.3);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 40px rgba(220, 50, 50, 0.6);
+    transform: scale(1.06);
+  }
+}
+
+@keyframes mock-vtf-wave {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
 }

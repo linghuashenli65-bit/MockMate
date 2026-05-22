@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import random
 import re
 import time
 from datetime import datetime, timedelta
@@ -375,6 +376,16 @@ class InterviewEngine:
         if used_list:
             dedup_note = "\n【去重】以下题目已经出过，严禁重复：\n" + "\n".join(f"- {q[:80]}..." for q in used_list)
 
+        # 从岗位技能中随机选1-2个方向，让每次出题覆盖不同知识点
+        skills = profile.get("required_skills", [])
+        techs = profile.get("tech_stack", [])
+        focus_pool = skills + techs
+        focus_hint = ""
+        if focus_pool:
+            focus_count = min(len(focus_pool), random.randint(1, 2))
+            focus_topics = random.sample(focus_pool, focus_count)
+            focus_hint = f"\n本轮侧重考察：{'、'.join(focus_topics)}"
+
         return f"""你是一个专业的笔试考官。这是第 {q_num}/{total} 题。
 
 == 岗位画像 ==
@@ -386,6 +397,7 @@ class InterviewEngine:
 {rc['prompt_extra']}
 
 难度：{expected_difficulty}（{difficulty_hint}）
+{focus_hint}
 {dedup_note}
 
 注意：以岗位画像中的 required_skills 和 tech_stack 为核心考察范围
@@ -482,6 +494,15 @@ correct_answer 必须正确无误，explanation 2-3 句解析。
         if used_list:
             dedup_note = "\n【去重】以下题目已经出过，严禁重复：\n" + "\n".join(f"- {q[:80]}..." for q in used_list)
 
+        # 随机聚焦不同技能点，避免反复生成同方向题目
+        skills = profile.get("required_skills", [])
+        techs = profile.get("tech_stack", [])
+        focus_pool = skills + techs
+        focus_hint = ""
+        if focus_pool:
+            focus_topics = random.sample(focus_pool, min(len(focus_pool), random.randint(1, 2)))
+            focus_hint = f"\n本轮侧重考察：{'、'.join(focus_topics)}"
+
         return f"""你是一个专业的面试官。请为以下岗位生成一道面试题。
 
 == 岗位画像 ==
@@ -493,6 +514,7 @@ correct_answer 必须正确无误，explanation 2-3 句解析。
 {rc['prompt_extra']}
 
 难度：{difficulty} — {difficulty_desc.get(difficulty, "")}
+{focus_hint}
 {dedup_note}
 
 只输出 JSON:
@@ -1049,7 +1071,8 @@ correct_answer 必须正确无误，explanation 2-3 句解析。
             if available:
                 pool = available
 
-        return pool[(num - 1) % len(pool)]
+        # 随机抽取而非 modulo 轮询，确保不同 session 命中不同题目
+        return random.choice(pool)
 
     def _make_fallback(self, num: int, round_name: str = "", profile: dict = None, used_questions: set = None) -> dict:
         if round_name == "written":
@@ -1257,8 +1280,19 @@ class QuestionPool:
         return pool
 
     def import_cached(self, questions: list[dict]):
-        """从缓存加载盈余题目（不计数 total_generated）"""
-        for q in questions:
+        """从缓存加载盈余题目 — 打散 + 去重（不计数 total_generated）"""
+        existing = set()
+        for diff in ["easy", "medium", "hard"]:
+            for q in getattr(self, diff, []):
+                existing.add(q.get("question", ""))
+
+        shuffled = list(questions)
+        random.shuffle(shuffled)
+        for q in shuffled:
+            text = q.get("question", "")
+            if text in existing:
+                continue
+            existing.add(text)
             diff = q.get("difficulty", "medium")
             pool = getattr(self, diff, None)
             if pool is not None:
@@ -1276,7 +1310,7 @@ def _get_pool_cache_key(resume: str, position: str, round_name: str) -> str:
 
 
 def load_pool_cache(resume: str, position: str, round_name: str) -> list[dict] | None:
-    """加载缓存中的盈余题目"""
+    """加载缓存中的盈余题目 — 加入随机采样打散，避免同岗位重复命中相同题目"""
     key = _get_pool_cache_key(resume, position, round_name)
     try:
         if POOL_CACHE_FILE.exists():
@@ -1285,8 +1319,18 @@ def load_pool_cache(resume: str, position: str, round_name: str) -> list[dict] |
             if entry:
                 expires = entry.get("_expires", "")
                 if expires and datetime.now().isoformat() < expires:
-                    logger.info(f"题库缓存命中: {key[:12]} ({len(entry['questions'])} 题)")
-                    return entry["questions"]
+                    questions = entry["questions"]
+                    # 打乱顺序，避免每次从缓存加载相同顺序的题目
+                    shuffled = list(questions)
+                    random.shuffle(shuffled)
+                    # 只取最多 70% 的缓存题目，留出空间给 AI 生成新题
+                    sample_size = max(2, int(len(shuffled) * 0.7))
+                    sampled = shuffled[:sample_size]
+                    logger.info(
+                        f"题库缓存命中: {key[:12]} "
+                        f"(原{len(questions)}题 → 采样{sample_size}题, 7天有效)"
+                    )
+                    return sampled
                 else:
                     logger.info(f"题库缓存已过期: {key[:12]}")
                     data.pop(key, None)
@@ -1297,22 +1341,25 @@ def load_pool_cache(resume: str, position: str, round_name: str) -> list[dict] |
 
 
 def save_pool_cache(resume: str, position: str, round_name: str, questions: list[dict]):
-    """保存盈余题目到缓存（7天有效）"""
+    """保存盈余题目到缓存（3天有效，存前打散）"""
     if not questions:
         return
     key = _get_pool_cache_key(resume, position, round_name)
-    expires = (datetime.now() + timedelta(days=7)).isoformat()
+    expires = (datetime.now() + timedelta(days=3)).isoformat()
     try:
+        # 存前打散，下次加载时不会按原顺序排列
+        shuffled = list(questions)
+        random.shuffle(shuffled)
         POOL_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
         data = {}
         if POOL_CACHE_FILE.exists():
             data = json.loads(POOL_CACHE_FILE.read_text(encoding="utf-8"))
         data[key] = {
-            "questions": questions,
+            "questions": shuffled,
             "_cached_at": datetime.now().isoformat(),
             "_expires": expires,
         }
         POOL_CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        logger.info(f"题库缓存已保存: {key[:12]} ({len(questions)} 题, 7天有效)")
+        logger.info(f"题库缓存已保存: {key[:12]} ({len(shuffled)} 题, 3天有效)")
     except Exception as e:
         logger.warning(f"保存题库缓存失败: {e}")

@@ -31,9 +31,19 @@ backend/data/mockmate.log
 
 # Audio files
 backend/data/audios/*.mp3
+backend/data/audios/*.wav
 
 # Session data (JSON fallback)
 backend/data/sessions/*.json
+
+# SSL certificates (auto-generated)
+backend/data/ssl/
+
+# Training data
+backend/data/training/
+
+# Voice cache
+backend/data/voice_cache.json
 
 # Research cache
 backend/data/research_cache.json

@@ -95,9 +95,13 @@ class DeepSeekClient:
         logger.warning("DeepSeek 不支持图片识别，请使用 MiMo API")
         return None
 
-    async def text_to_speech(self, text: str) -> Optional[bytes]:
+    async def text_to_speech(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
         """DeepSeek 不支持 TTS"""
         logger.warning("DeepSeek 不支持语音合成，请使用 MiMo API")
+        return None
+
+    async def speech_to_text(self, audio_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+        """DeepSeek 不支持语音识别"""
         return None
 
     async def close(self):

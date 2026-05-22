@@ -141,10 +141,20 @@ class ZhipuClient:
             logger.error(f"Zhipu 图片识别失败: {e}")
             return None
 
-    async def text_to_speech(self, text: str) -> Optional[bytes]:
+    _ZHIPU_VOICE_MAP = {
+        "稳重男声": "male",
+        "阳光男声": "male",
+        "温柔女声": "female",
+        "知性女声": "female",
+        "活泼女声": "female",
+        "默认": "female",
+    }
+
+    async def text_to_speech(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
         """调用语音合成"""
         if not self.ready:
             return None
+        voice_id = self._ZHIPU_VOICE_MAP.get(voice or "", "female")
         try:
             resp = await self._client.post(
                 "/audio/speech",
@@ -152,7 +162,7 @@ class ZhipuClient:
                 json={
                     "model": self.tts_model,
                     "input": text,
-                    "voice": "female",
+                    "voice": voice_id,
                     "response_format": "wav",
                 },
                 timeout=60.0,
@@ -160,8 +170,12 @@ class ZhipuClient:
             resp.raise_for_status()
             return resp.content
         except Exception as e:
-            logger.error(f"Zhipu TTS 失败 (model={self.tts_model}): {e}")
+            logger.error(f"Zhipu TTS 失败 (model={self.tts_model} voice={voice_id}): {e}")
             return None
+
+    async def speech_to_text(self, audio_bytes: bytes, filename: str = "audio.wav") -> Optional[str]:
+        """语音识别（Zhipu 暂不支持，返回 None 触发 fallback）"""
+        return None
 
     async def close(self):
         if self._owns_client:

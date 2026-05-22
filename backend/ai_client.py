@@ -6,7 +6,7 @@
 import logging
 from typing import Optional
 
-from .config import AI_PROVIDER
+from .config import AI_PROVIDER, QWEN_MODEL_TTS
 from .mimoclient import MiMoClient
 from .deepseek_client import DeepSeekClient
 from .qwen_client import QwenClient
@@ -135,6 +135,17 @@ class AIClient:
         """推理/对话 - 首选当前提供商，失败时自动 fallback"""
         return await self._call_with_fallback("reason", messages, **kwargs)
 
+    async def stream_reason(self, messages: list, **kwargs):
+        """流式推理 - 逐 token 产出，不支持流式的客户端自动退化为非流式"""
+        client = self._primary()
+        if hasattr(client, 'stream_reason'):
+            async for token in client.stream_reason(messages, **kwargs):
+                yield token
+        else:
+            result = await client.reason(messages, **kwargs)
+            if result:
+                yield result
+
     async def chat(self, messages: list, **kwargs) -> Optional[str]:
         """标准对话（非推理） - 首选当前提供商的标准模型，失败时自动 fallback"""
         return await self._call_with_fallback("chat_standard", messages, **kwargs)
@@ -152,13 +163,93 @@ class AIClient:
             result = await self.zhipu.extract_text_from_image(image_bytes)
         return result
 
-    async def text_to_speech(self, text: str) -> Optional[bytes]:
-        """语音合成 - 优选 MiMo，其次 Qwen CosyVoice，再 Zhipu GLM-TTS"""
-        result = await self.mimo.text_to_speech(text)
-        if result is None and self.qwen.ready:
-            result = await self.qwen.text_to_speech(text)
+    async def text_to_speech(self, text: str, voice: Optional[str] = None) -> Optional[bytes]:
+        """语音合成 - 优先 Qwen CosyVoice WebSocket（收集完整音频），其次 MiMo，再 Zhipu
+        voice: 音色名称，如"稳重男声""温柔女声""知性女声""阳光男声""活泼女声"
+        """
+        # 先尝试 Qwen CosyVoice WebSocket（收集所有 chunk 为完整音频）
+        if self.qwen.ready:
+            try:
+                from .cosyvoice_ws import CosyVoiceStreamClient
+                client = CosyVoiceStreamClient(self.qwen.api_key)
+                chunks = []
+                async for chunk in client.synthesize(text, voice=voice, rate=1.1):
+                    chunks.append(chunk)
+                if chunks:
+                    return b''.join(chunks)
+            except Exception as e:
+                logger.warning(f"CosyVoice WS 合成失败，降级 MiMo: {e}")
+
+        result = await self.mimo.text_to_speech(text, voice=voice)
         if result is None and self.zhipu.ready:
-            result = await self.zhipu.text_to_speech(text)
+            result = await self.zhipu.text_to_speech(text, voice=voice)
+        return result
+
+    async def text_to_speech_stream(self, text: str, voice: Optional[str] = None, rate: float = 1.1):
+        """流式语音合成，逐 chunk 产出音频二进制数据
+
+        优先使用 Qwen CosyVoice WebSocket 流式 TTS，
+        CosyVoice 不可用时降级到非流式 TTS（整段产出）。
+
+        Args:
+            text: 要合成的文本
+            voice: 音色名称
+            rate: 语速倍率，0.5~2.0
+
+        Yields:
+            bytes: 音频二进制数据 chunk
+        """
+        # 尝试 Qwen CosyVoice 流式 TTS
+        if self.qwen.ready:
+            try:
+                from .cosyvoice_ws import CosyVoiceStreamClient
+                client = CosyVoiceStreamClient(self.qwen.api_key)
+                async for chunk in client.synthesize(text, voice=voice, rate=rate):
+                    yield chunk
+                return  # 流式成功
+            except Exception as e:
+                logger.warning(f"CosyVoice 流式 TTS 失败，降级到非流式: {e}")
+
+        # 降级到非流式 TTS（整段产出，直接走 MiMo/Zhipu，避免重试 CosyVoice）
+        result = await self.mimo.text_to_speech(text, voice=voice)
+        if result is None and self.zhipu.ready:
+            result = await self.zhipu.text_to_speech(text, voice=voice)
+        if result:
+            yield result
+
+    async def create_tts_stream_session(self, instruction: str, rate: float = 1.1,
+                                         voice_preset: str = "默认"):
+        """创建双向流式 TTS 会话
+
+        返回 TTSStreamSession 实例，支持逐 chunk 发送文本并实时接收音频。
+        如果 Qwen 未配置或不可用，返回 None（调用方降级为仅文本输出）。
+
+        Args:
+            instruction: 音色指令描述
+            rate: 语速倍率，0.5~2.0
+            voice_preset: 预设音色名称，用于选择对应的 voice design
+
+        Returns:
+            TTSStreamSession 或 None
+        """
+        if self.qwen.ready:
+            from .cosyvoice_ws import TTSStreamSession
+            return TTSStreamSession(
+                api_key=self.qwen.api_key,
+                model=QWEN_MODEL_TTS,
+                instruction=instruction,
+                rate=rate,
+                voice_preset=voice_preset,
+            )
+        return None
+
+    async def speech_to_text(self, audio_bytes: bytes) -> Optional[str]:
+        """语音识别 - 优选 Qwen Paraformer，其次 MiMo，再 Zhipu"""
+        result = await self.qwen.speech_to_text(audio_bytes)
+        if result is None and self.mimo.ready:
+            result = await self.mimo.speech_to_text(audio_bytes)
+        if result is None and self.zhipu.ready:
+            result = await self.zhipu.speech_to_text(audio_bytes)
         return result
 
     async def close(self):
