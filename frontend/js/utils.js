@@ -13,6 +13,7 @@ window.MockMate = window.MockMate || {};
     tech_2:        '技术二面 - 架构设计与技术深度',
     comprehensive: '综合面 - 综合素质与发展潜力',
     custom:        '自定义练习',
+    mock:          '拟真面试',
   };
 
   M.ROUND_TOTALS = {

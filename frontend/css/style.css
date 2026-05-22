@@ -680,6 +680,30 @@ textarea { resize: vertical; min-height: 80px; }
   color: var(--text2);
 }
 
+.mock-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--accent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  vertical-align: middle;
+  margin-right: 4px;
+  letter-spacing: .3px;
+}
+
+.history-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
 /* -------- Weakness Area -------- */
 .weakness-list { list-style: none; }
 

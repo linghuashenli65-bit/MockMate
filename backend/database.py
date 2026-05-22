@@ -238,6 +238,7 @@ class Database:
                     report = json.loads(row[6]) if row[6] else {}
                     result.append({
                         "id": row[0],
+                        "type": "normal",
                         "position": row[1] or "未知",
                         "company": row[2] or "",
                         "round": row[3] or "",
@@ -667,11 +668,12 @@ class Database:
                 report = data.get("report", {})
                 sessions.append({
                     "id": fp.stem,
+                    "type": data.get("type", "normal"),
                     "position": data.get("position", "未知"),
                     "company": data.get("company", ""),
                     "round": data.get("round", ""),
                     "date": data.get("_updated_at", "")[:19],
-                    "total_questions": len(data.get("history", [])),
+                    "total_questions": len(data.get("history", [])) or report.get("total_questions", 0),
                     "overall_score": report.get("overall_score", 0),
                     "score_breakdown": report.get("score_breakdown", {}),
                     "weaknesses": report.get("weaknesses", []),

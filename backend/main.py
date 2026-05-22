@@ -1201,9 +1201,14 @@ async def mock_interview_start(req: MockInterviewStartRequest,
 
     # 持久化到数据库
     try:
+        pos = (req.profile or {}).get("position", "") or (req.resume or "")[:30] or "拟真面试"
+        co = (req.profile or {}).get("company", "") or ""
         mock_session = {
             "id": result["session_id"],
             "type": "mock",
+            "position": pos,
+            "company": co,
+            "round": "mock",
             "interviewer_ids": req.interviewer_ids,
             "status": "active",
             "user_id": current_user["id"],

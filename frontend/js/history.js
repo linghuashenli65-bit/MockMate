@@ -61,25 +61,21 @@ window.MockMate = window.MockMate || {};
         '<button class="btn btn-secondary btn-sm" onclick="window.print()">导出 PDF</button>' +
         '</div>';
 
-      // 面试记录列表
-      sessions.forEach(s => {
-        html +=
-          '<div class="history-item">' +
-            '<div class="hi-main">' +
-              '<div class="hi-info" onclick="MockMate.History.viewSession(\'' + M.esc(s.id) + '\')">' +
-                '<div class="hi-position">' + M.esc(s.position) + '</div>' +
-                '<div class="hi-meta">' +
-                  (s.company ? M.esc(s.company) + ' · ' : '') +
-                  (M.ROUND_NAMES[s.round] || s.round || '') +
-                  (s.round ? ' · ' : '') +
-                  M.esc(M.formatDateTime(s.date)) +
-                  ' · ' + s.total_questions + ' 题 · 评分 ' + s.overall_score +
-                '</div>' +
-              '</div>' +
-              '<button class="btn btn-danger btn-sm" style="margin-left:8px;flex-shrink:0" onclick="event.stopPropagation();MockMate.History.deleteSession(\'' + M.esc(s.id) + '\')">删除</button>' +
-            '</div>' +
-          '</div>';
-      });
+      // 按类型分组
+      var mockSessions = sessions.filter(function(s){ return s.type === 'mock'; });
+      var normalSessions = sessions.filter(function(s){ return s.type !== 'mock'; });
+
+      // 渲染普通面试
+      if (normalSessions.length) {
+        html += '<div class="history-section-title">模拟面试</div>';
+        html += renderSessionCards(normalSessions);
+      }
+
+      // 渲染拟真面试
+      if (mockSessions.length) {
+        html += '<div class="history-section-title" style="margin-top:16px">拟真面试</div>';
+        html += renderSessionCards(mockSessions);
+      }
 
       container.innerHTML = html;
 
@@ -95,10 +91,43 @@ window.MockMate = window.MockMate || {};
     }
   };
 
+  // ---- 渲染会话卡片列表 ----
+  function renderSessionCards(list) {
+    var cards = '';
+    list.forEach(function(s) {
+      var isMock = s.type === 'mock';
+      var positionLabel = isMock
+        ? '<span class="mock-badge">拟真</span> ' + M.esc(s.position)
+        : M.esc(s.position);
+      var roundLabel = isMock
+        ? '模拟面试'
+        : (M.ROUND_NAMES[s.round] || s.round || '');
+      cards +=
+        '<div class="history-item' + (isMock ? ' is-mock' : '') + '">' +
+          '<div class="hi-main">' +
+            '<div class="hi-info" onclick="MockMate.History.viewSession(\'' + M.esc(s.id) + '\')">' +
+              '<div class="hi-position">' + positionLabel + '</div>' +
+              '<div class="hi-meta">' +
+                (s.company ? M.esc(s.company) + ' · ' : '') +
+                roundLabel +
+                (roundLabel ? ' · ' : '') +
+                M.esc(M.formatDateTime(s.date)) +
+                ' · ' + s.total_questions + ' 题 · 评分 ' + s.overall_score +
+              '</div>' +
+            '</div>' +
+            '<button class="btn btn-danger btn-sm" style="margin-left:8px;flex-shrink:0" onclick="event.stopPropagation();MockMate.History.deleteSession(\'' + M.esc(s.id) + '\')">删除</button>' +
+          '</div>' +
+        '</div>';
+    });
+    return cards;
+  }
+
   // ---- 统计摘要 ----
   H.renderStatsSummary = function (sessions) {
-    const total = sessions.length;
-    const scores = sessions.map(s => s.overall_score || 0).filter(s => s > 0);
+    // 排除拟真面试（拟真面试不使用传统评分体系）
+    var realSessions = sessions.filter(function(s){ return s.type !== 'mock'; });
+    const total = realSessions.length;
+    const scores = realSessions.map(s => s.overall_score || 0).filter(s => s > 0);
     const avgScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     const maxScore = scores.length > 0 ? Math.max(...scores) : 0;
 
@@ -452,6 +481,12 @@ window.MockMate = window.MockMate || {};
     try {
       const s = await M.API.get('/api/interview/session/' + sessionId);
 
+      // 拟真面试走独立报告视图
+      if (s.type === 'mock') {
+        H.viewMockSession(sessionId);
+        return;
+      }
+
       let html =
         '<div style="margin-bottom:8px;display:flex;justify-content:space-between">' +
           '<button class="btn btn-secondary btn-sm" onclick="MockMate.History.loadHistory()">\u2190 返回列表</button>' +
@@ -514,6 +549,71 @@ window.MockMate = window.MockMate || {};
       setTimeout(() => {
         if (s.report) H.renderRadarChart('radarChart', s.report);
       }, 100);
+    } catch(e) {
+      container.innerHTML = '<div style="color:var(--red);font-size:13px">加载失败: ' + M.esc(e.message) +
+        '<br><button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="MockMate.History.loadHistory()">返回列表</button></div>';
+    }
+  };
+
+  // ---- 查看拟真面试详情 ----
+  H.viewMockSession = async function (sessionId) {
+    const container = document.getElementById('historyList');
+    container.innerHTML = '<div class="loading"><div class="spinner"></div><div style="margin-top:8px">加载拟真面试报告...</div></div>';
+
+    try {
+      const s = await M.API.get('/api/interview/session/' + sessionId);
+      var r = s.report || {};
+      var cov = r.coverage || {};
+
+      var html =
+        '<div style="margin-bottom:8px;display:flex;justify-content:space-between">' +
+          '<button class="btn btn-secondary btn-sm" onclick="MockMate.History.loadHistory()">← 返回列表</button>' +
+        '</div>' +
+        '<div class="card">' +
+          '<h2 style="text-transform:none;color:var(--text)">' + M.esc(s.position || '拟真面试') + '</h2>' +
+          '<div style="font-size:13px;color:var(--text2);margin-bottom:12px">' +
+            (s.company ? M.esc(s.company) + ' · ' : '') +
+            M.esc(M.formatDateTime(s.date)) +
+            ' · <span style="color:var(--accent2)">拟真面试</span>' +
+            ' · 共 ' + (r.total_questions || 0) + ' 题' +
+          '</div>';
+
+      // 阶段覆盖度展示
+      var stages = cov.stages || [];
+      if (stages.length) {
+        html += '<h3 style="font-size:14px;font-weight:600;margin:12px 0 8px">阶段覆盖</h3><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">';
+        stages.forEach(function(st) {
+          html += '<span class="score-tag">' + M.esc(st.name || st.stage || '?') + ' <span class="val">' + (st.questions || 0) + '题</span></span>';
+        });
+        html += '</div>';
+      }
+
+      // 面试官列表
+      var interviewers = cov.interviewers || s.interviewer_ids || [];
+      if (interviewers.length) {
+        html += '<h3 style="font-size:14px;font-weight:600;margin:12px 0 8px">面试官</h3><div style="font-size:13px;color:var(--text2);margin-bottom:12px">';
+        html += M.esc(interviewers.map(function(iv) { return typeof iv === 'string' ? iv : (iv.name || iv.role || '?'); }).join('、'));
+        html += '</div>';
+      }
+
+      // 问答历史
+      var history = s.history || r.history || [];
+      if (history.length) {
+        html += '<h3 style="font-size:14px;font-weight:600;margin:16px 0 8px">问答记录</h3>';
+        history.forEach(function(h, i) {
+          if (h.type === 'question' || h.question) {
+            html +=
+              '<div style="background:var(--surface2);border-radius:8px;padding:12px;margin-top:6px">' +
+                '<div style="font-size:12px;color:var(--accent2)">第 ' + (i+1) + ' 题 · ' + M.esc(h.interviewer || h.interviewer_name || '') + '</div>' +
+                '<div style="font-size:13px;margin:4px 0" class="markdown-body"><strong>问：</strong>' + M.md(h.question || h.q || '') + '</div>' +
+                (h.answer || h.a ? '<div style="font-size:13px;color:var(--text2)" class="markdown-body"><strong>答：</strong>' + M.md((h.answer || h.a || '').slice(0, 300)) + '</div>' : '') +
+              '</div>';
+          }
+        });
+      }
+
+      html += '</div>';
+      container.innerHTML = html;
     } catch(e) {
       container.innerHTML = '<div style="color:var(--red);font-size:13px">加载失败: ' + M.esc(e.message) +
         '<br><button class="btn btn-secondary btn-sm" style="margin-top:8px" onclick="MockMate.History.loadHistory()">返回列表</button></div>';
