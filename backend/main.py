@@ -1,8 +1,11 @@
 """MockMate 主服务"""
 import asyncio
+import base64
 import json
 import logging
+import queue as queue_mod
 import sys
+import threading
 import time
 import uuid
 from datetime import datetime
@@ -19,10 +22,14 @@ from typing import Optional
 
 import io
 
+import dashscope
+from dashscope.audio.asr import Recognition, RecognitionCallback, RecognitionResult
+
 from pypdf import PdfReader
 from docx import Document
 
-from .config import HOST, PORT, DATA_DIR, ALLOW_SHARED_API_KEY
+from .config import HOST, PORT, DATA_DIR, ALLOW_SHARED_API_KEY, QWEN_API_KEY
+from .asr_phrases import get_or_create_vocabulary_id
 from .ai_client import AIClient
 from .web_research import WebResearch
 from .interview_engine import InterviewEngine, QuestionPool, load_pool_cache, save_pool_cache
@@ -1446,6 +1453,257 @@ async def mock_interview_ws(websocket: WebSocket, session_id: str):
             await websocket.send_json({"type": "error", "message": str(e), "code": "internal_error"})
         except Exception:
             pass
+
+
+# ----- 实时语音识别 WebSocket（边说边出字，支持 VAD） -----
+
+_ASR_LOGGER = logging.getLogger("backend.qwen_client")
+
+
+def _make_wav_header(data_size: int, sample_rate: int = 16000) -> bytes:
+    """生成 PCM16 单声道 WAV 文件头（44 字节，流式模式）。
+
+    流式场景下 data_size 字段设为 0xFFFFFFFF 表示未知长度，
+    避免解码器按头部的 data_size 提前截断音频流。
+    """
+    import struct
+    channels = 1
+    bits_per_sample = 16
+    bytes_per_sample = bits_per_sample // 8
+    byte_rate = sample_rate * channels * bytes_per_sample
+    block_align = channels * bytes_per_sample
+    # 流式模式：文件大小和数据大小均标记为未知
+    file_size = 0xFFFFFFFF
+    data_size_field = 0xFFFFFFFF
+    return struct.pack(
+        '<4sI4s4sIHHIIHH4sI',
+        b'RIFF', file_size, b'WAVE',
+        b'fmt ', 16, 1, channels,
+        sample_rate, byte_rate, block_align,
+        bits_per_sample,
+        b'data', data_size_field,
+    )
+
+
+@app.websocket("/api/asr/stream")
+async def asr_stream_ws(websocket: WebSocket, api_key: str = Query(""), vad: bool = Query(False), fmt: str = Query("pcm")):
+    """实时语音识别 WebSocket — 边说边出字
+
+    VAD 模式（vad=true）：DashScope 自动检测语音起止，持续识别不中断。
+    非 VAD 模式：客户端按需发送 audio chunk，用 stop 显式结束。
+
+    协议（JSON）：
+    客户端 → 服务端:
+      {"type": "audio", "data": "<base64 audio chunk>"}
+      {"type": "stop"}                           # 停止识别
+
+    服务端 → 客户端:
+      {"type": "partial", "text": "..."}          # 中间结果（正在说的内容）
+      {"type": "final", "text": "..."}            # 一句话结束（VAD 检测到停顿）
+      {"type": "speech_start"}                    # VAD 模式：检测到语音开始
+      {"type": "speech_end"}                      # VAD 模式：检测到语音结束
+      {"type": "error", "message": "..."}
+      {"type": "done"}                            # 识别结束
+    """
+    await websocket.accept()
+
+    key = api_key or QWEN_API_KEY
+    if not key or key == "your-api-key-here":
+        await websocket.send_json({"type": "error", "message": "未配置 API Key"})
+        await websocket.close()
+        return
+
+    # 获取技术术语热词表（首次调用创建/复用，后续命中缓存）
+    # 首次调用可能较慢（需创建 Vocabulary），设置超时避免阻塞连接建立
+    try:
+        vocabulary_id = await asyncio.wait_for(
+            asyncio.to_thread(get_or_create_vocabulary_id), timeout=5.0
+        )
+    except (asyncio.TimeoutError, Exception):
+        vocabulary_id = None
+        _ASR_LOGGER.warning("ASR 热词: 获取热词表超时或失败，本次连接将不使用热词")
+
+    # 线程安全队列：async 侧放音频帧，worker 线程消费
+    audio_queue: "queue_mod.Queue" = queue_mod.Queue()
+    shutdown_event = threading.Event()
+    result_queue: asyncio.Queue = asyncio.Queue()
+    loop = asyncio.get_running_loop()
+    in_speech = False
+    worker = None
+
+    class _ASRCallback(RecognitionCallback):
+        def on_open(self) -> None:
+            loop.call_soon_threadsafe(
+                result_queue.put_nowait, ("info", "connected"),
+            )
+
+        def on_close(self) -> None:
+            loop.call_soon_threadsafe(
+                result_queue.put_nowait, ("info", "closed"),
+            )
+
+        def on_complete(self) -> None:
+            loop.call_soon_threadsafe(
+                result_queue.put_nowait, ("done", None),
+            )
+
+        def on_error(self, message) -> None:
+            loop.call_soon_threadsafe(
+                result_queue.put_nowait, ("error", message.message),
+            )
+
+        def on_event(self, result: RecognitionResult) -> None:
+            sentence = result.get_sentence()
+            _ASR_LOGGER.info("ASR on_event: sentence=%s", sentence)
+            if sentence and "text" in sentence:
+                text = sentence["text"]
+                is_end = RecognitionResult.is_sentence_end(sentence)
+                _ASR_LOGGER.info("ASR result: type=%s text=%s", "final" if is_end else "partial", text)
+                loop.call_soon_threadsafe(
+                    result_queue.put_nowait, ("final" if is_end else "partial", text),
+                )
+
+    def _recognition_worker():
+        """在独立线程中运行整个 Recognition 生命周期（start → 帧发送 → stop）
+
+        避免跨线程调用 SDK（dashscope 的 Recognition.send_audio_frame
+        非线程安全），所有 SDK 操作集中在同一线程。
+        """
+        dashscope.api_key = key
+        dashscope.base_websocket_api_url = "wss://dashscope.aliyuncs.com/api-ws/v1/inference"
+
+        # 内部使用 WAV 格式（自动封装头部），前端传的 fmt=pcm 只控制原始编码
+        rec = Recognition(
+            model="fun-asr-realtime",
+            format="wav",
+            sample_rate=16000,
+            semantic_punctuation_enabled=True,
+            disfluency_removal_enabled=True,
+            callback=_ASRCallback(),
+        )
+
+        first_chunk = True
+        frame_count = 0
+        try:
+            rec.start(phrase_id=vocabulary_id)
+            if vocabulary_id:
+                _ASR_LOGGER.info("ASR recognition worker 已启动 (热词表=%s)", vocabulary_id)
+            else:
+                _ASR_LOGGER.info("ASR recognition worker 已启动")
+            while not shutdown_event.is_set():
+                try:
+                    chunk = audio_queue.get(timeout=0.2)
+                    if chunk is None:  # sentinel → 停止
+                        break
+                    if first_chunk:
+                        # 为第一帧加上 WAV 头部，DashScope 依赖头部信息确认音频格式
+                        chunk = _make_wav_header(len(chunk)) + chunk
+                        first_chunk = False
+                        _ASR_LOGGER.info("ASR 首帧: 原始 %d bytes + WAV头 44 = %d bytes", len(chunk) - 44, len(chunk))
+                    rec.send_audio_frame(chunk)
+                    frame_count += 1
+                except queue_mod.Empty:
+                    continue
+        except Exception as e:
+            _ASR_LOGGER.error("ASR worker 异常: %s", e)
+            asyncio.run_coroutine_threadsafe(
+                result_queue.put(("error", str(e))), loop,
+            )
+        finally:
+            try:
+                rec.stop()
+            except Exception:
+                pass
+            _ASR_LOGGER.info("ASR recognition worker 已停止 (共发送 %d 帧)", frame_count)
+
+    worker = loop.run_in_executor(None, _recognition_worker)
+
+    receive_task = None
+    result_task = None
+    try:
+        while True:
+            receive_task = asyncio.create_task(websocket.receive_json())
+            result_task = asyncio.create_task(result_queue.get())
+
+            done, pending = await asyncio.wait(
+                [receive_task, result_task],
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+
+            for task in done:
+                if task is receive_task:
+                    msg = task.result()
+                    msg_type = msg.get("type")
+
+                    if msg_type == "audio":
+                        chunk = base64.b64decode(msg["data"])
+                        audio_queue.put(chunk)
+
+                    elif msg_type == "stop":
+                        shutdown_event.set()
+                        audio_queue.put(None)
+
+                elif task is result_task:
+                    event_type, data = task.result()
+                    if event_type == "partial":
+                        if vad and not in_speech:
+                            in_speech = True
+                            await websocket.send_json({"type": "speech_start"})
+                        await websocket.send_json({"type": "partial", "text": data})
+                    elif event_type == "final":
+                        await websocket.send_json({"type": "final", "text": data})
+                        if vad:
+                            in_speech = False
+                            await websocket.send_json({"type": "speech_end"})
+                    elif event_type == "done":
+                        await websocket.send_json({"type": "done"})
+                        # 清理 pending tasks（避免 "Task exception was never retrieved"）
+                        for t in pending:
+                            t.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return
+                    elif event_type == "error":
+                        await websocket.send_json({"type": "error", "message": data})
+                        for t in pending:
+                            t.cancel()
+                        if pending:
+                            await asyncio.gather(*pending, return_exceptions=True)
+                        return
+
+            # 安全清理 pending task
+            for t in pending:
+                t.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+
+    except WebSocketDisconnect:
+        _ASR_LOGGER.info("ASR WebSocket 客户端断开")
+    except Exception as e:
+        _ASR_LOGGER.error("ASR WebSocket 错误: %s", e)
+        try:
+            await websocket.send_json({"type": "error", "message": str(e)})
+        except Exception:
+            pass
+    finally:
+        # 回收所有未处理 task 的异常（receive_task 可能在 done 中带有 WebSocketDisconnect）
+        try:
+            if receive_task is not None and receive_task.done() and not receive_task.cancelled():
+                receive_task.exception()
+        except Exception:
+            pass
+        try:
+            if result_task is not None and result_task.done() and not result_task.cancelled():
+                result_task.exception()
+        except Exception:
+            pass
+        shutdown_event.set()
+        audio_queue.put(None)
+        if worker:
+            try:
+                await asyncio.wait_for(worker, timeout=5.0)
+            except Exception:
+                pass
 
 
 # ==================== 前端 ====================

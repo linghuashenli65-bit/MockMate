@@ -28,10 +28,7 @@ window.MockMate = window.MockMate || {};
   var _timerInterval = null;    // 计时器
   var _elapsedSeconds = 0;      // 已用秒数
   var _maxDuration = 0;         // 面试总时长（秒）
-  var _isRecording = false;     // 是否正在录音
-  var _mediaRecorder = null;    // 录音器
-  var _audioChunks = [];        // 录音数据
-  var _stream = null;           // 麦克风流
+  var _realtimeStream = null;   // 实时 ASR 流对象（来自 M.ASR.startStream）
   var _submitTime = 0;          // 最后一次提交时间戳 (ms)
   var _thinkingTimeout = null;  // 思考态延迟定时器
   var _thinkingDotTimer = null; // 思考态 dots 动画定时器
@@ -77,6 +74,25 @@ window.MockMate = window.MockMate || {};
         MI.updateStartButtonState();
       });
     }
+
+    // T 键开关麦克风（仅在拟真面试 Tab 活跃且面试已开始时生效）
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 't' && e.key !== 'T') return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.repeat) return;
+      if (e.isComposing) return;
+      var tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      if (e.target && e.target.isContentEditable) return;
+
+      // 仅当拟真面试 Tab 活跃且面试已开始（麦克风按钮可见）时触发
+      var miTab = document.getElementById('tab-mock-interview');
+      var voiceBtn = document.getElementById('mockVoiceBtn');
+      if (miTab && miTab.classList.contains('active') && voiceBtn && voiceBtn.style.display !== 'none') {
+        e.preventDefault();
+        MI.toggleRecording();
+      }
+    });
   };
 
   // ==================== 面试官 CRUD ====================
@@ -376,11 +392,11 @@ window.MockMate = window.MockMate || {};
         '<div class="mock-input-area" id="mockInputArea">' +
           '<textarea id="mockAnswerInput" placeholder="沉稳作答..." rows="4"></textarea>' +
           '<div class="mock-input-actions">' +
-            '<button class="mock-voice-btn" id="mockVoiceBtn" onclick="MockMate.MockInterview.toggleRecording()">🎤</button>' +
+            '<button class="mock-voice-btn" id="mockVoiceBtn" onclick="MockMate.MockInterview.toggleRecording()" title="语音输入 (T 键开关)">🎤</button>' +
             '<button class="mock-submit-btn" id="mockSubmitBtn" onclick="MockMate.MockInterview.submitAnswer()">提交回答</button>' +
             '<span class="mock-submit-hint" id="mockSubmitHint"></span>' +
           '</div>' +
-          '<div class="mock-recording-status" id="mockRecordingStatus" style="font-size:12px;color:#8B94A7;margin-top:4px;text-align:center"></div>' +
+          '<div class="mock-recording-status" id="mockRecordingStatus"></div>' +
           '<div class="mock-anti-chat" id="mockAntiChat" style="opacity:0"></div>' +
         '</div>';
     }
@@ -1126,7 +1142,7 @@ window.MockMate = window.MockMate || {};
     if (_thinkingTimeout) { clearTimeout(_thinkingTimeout); _thinkingTimeout = null; }
     if (_thinkingDotTimer) { clearInterval(_thinkingDotTimer); _thinkingDotTimer = null; }
     if (_ws) { try { _ws.close(); } catch (e) {} _ws = null; }
-    if (_stream) { _stream.getTracks().forEach(function (t) { t.stop(); }); _stream = null; }
+    if (_realtimeStream) { _realtimeStream.stop(); _realtimeStream = null; }
 
     var sessionId = data.session_id || _sessionId;
     var coverage = data.coverage || {};
@@ -1310,13 +1326,94 @@ window.MockMate = window.MockMate || {};
     });
   };
 
-  // ==================== 语音录制 ====================
+  // ==================== 语音录制（实时流式 ASR） ====================
 
-  MI.toggleRecording = async function () {
-    if (_isRecording) {
-      MI.stopRecording();
-    } else {
-      await MI.startRecording();
+  MI.toggleRecording = function () {
+    var btn = document.getElementById('mockVoiceBtn');
+    var statusEl = document.getElementById('mockRecordingStatus');
+
+    if (_realtimeStream && _realtimeStream.isActive()) {
+      // 关闭麦克风
+      _realtimeStream.stop();
+      _realtimeStream = null;
+      if (btn) {
+        btn.classList.remove('recording');
+        btn.textContent = '\uD83C\uDFA4';
+        btn.title = '语音输入 (T 键开关)';
+      }
+      if (statusEl) {
+        statusEl.classList.remove('active');
+        statusEl.textContent = '\u2003';
+      }
+      return;
+    }
+
+    // 打开麦克风
+    if (btn) {
+      btn.classList.add('recording');
+      btn.textContent = '\u23F9';
+      btn.title = '停止录音 (T 键开关)';
+    }
+    if (statusEl) {
+      statusEl.classList.add('active');
+      statusEl.textContent = '\u25CF 录音中...';
+    }
+
+    var ta = document.getElementById('mockAnswerInput');
+
+    _realtimeStream = M.ASR.startStream({
+      onPartial: function (partialText, fullText) {
+        ta.value = fullText;
+        ta.dispatchEvent(new Event('input'));
+        if (statusEl) statusEl.textContent = '\u25CF 录音中... ' + fullText.slice(0, 24);
+      },
+      onFinal: function (finalText) {
+        ta.value = finalText;
+        ta.focus();
+        ta.dispatchEvent(new Event('input'));
+      },
+      onSpeechStart: function () {
+        if (statusEl) statusEl.textContent = '\u25CF 语音中...';
+      },
+      onSpeechEnd: function () {
+        if (statusEl) statusEl.textContent = '\u25CF 等待说话...';
+      },
+      onError: function (msg) {
+        M.toast('语音识别错误: ' + msg);
+        _realtimeStream = null;
+        if (btn) {
+          btn.classList.remove('recording');
+          btn.textContent = '\uD83C\uDFA4';
+          btn.title = '语音输入 (T 键开关)';
+        }
+        if (statusEl) {
+          statusEl.classList.remove('active');
+          statusEl.textContent = '\u2003';
+        }
+      },
+      onDone: function () {
+        if (statusEl) {
+          statusEl.classList.remove('active');
+          statusEl.textContent = '\u2713 识别完成';
+          setTimeout(function () {
+            if (statusEl && statusEl.textContent === '\u2713 识别完成') {
+              statusEl.textContent = '\u2003';
+            }
+          }, 2000);
+        }
+      }
+    });
+
+    if (!_realtimeStream) {
+      if (btn) {
+        btn.classList.remove('recording');
+        btn.textContent = '\uD83C\uDFA4';
+        btn.title = '语音输入 (T 键开关)';
+      }
+      if (statusEl) {
+        statusEl.classList.remove('active');
+        statusEl.textContent = '\uD83D\uDEAB 无法启动';
+      }
     }
   };
 
@@ -1336,75 +1433,6 @@ window.MockMate = window.MockMate || {};
     }
     return true;
   }
-
-  MI.startRecording = async function () {
-    if (!_checkMediaDevices()) return;
-    try {
-      _stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      _mediaRecorder = new MediaRecorder(_stream);
-      _audioChunks = [];
-
-      _mediaRecorder.ondataavailable = function (event) {
-        if (event.data.size > 0) {
-          _audioChunks.push(event.data);
-        }
-      };
-
-      _mediaRecorder.onstop = function () {
-        var blob = new Blob(_audioChunks, { type: 'audio/webm' });
-        document.getElementById('mockRecordingStatus').textContent =
-          '🔄 识别中... (' + (blob.size / 1024).toFixed(0) + 'KB)';
-
-        // 调用 ASR 转文字
-        var formData = new FormData();
-        formData.append('file', blob, 'recording.webm');
-        fetch('/api/mock/voice/asr', { method: 'POST', body: formData })
-          .then(function (r) {
-            if (!r.ok) throw new Error('ASR 请求失败');
-            return r.json();
-          })
-          .then(function (data) {
-            if (data.transcription) {
-              var ta = document.getElementById('mockAnswerInput');
-              if (ta) {
-                ta.value = data.transcription;
-                ta.focus();
-                // 触发 input 事件，让可能的字数统计等更新
-                ta.dispatchEvent(new Event('input'));
-              }
-              document.getElementById('mockRecordingStatus').textContent =
-                '🎤 ' + data.transcription.slice(0, 50) + (data.transcription.length > 50 ? '...' : '');
-              M.toast('语音识别完成');
-            } else {
-              document.getElementById('mockRecordingStatus').textContent = '🎤 未能识别出文字';
-              M.toast('未能识别出文字，请重试或手动输入');
-            }
-          })
-          .catch(function (err) {
-            document.getElementById('mockRecordingStatus').textContent = '🎤 识别失败';
-            M.toast('语音识别失败: ' + err.message);
-          });
-
-        _stream.getTracks().forEach(function (t) { t.stop(); });
-        _stream = null;
-      };
-
-      _mediaRecorder.start();
-      _isRecording = true;
-      document.getElementById('mockRecordingStatus').textContent = '🔴 录音中...';
-      document.getElementById('mockVoiceBtn').textContent = '⏹ 停止录音';
-    } catch (e) {
-      M.toast('无法访问麦克风: ' + e.message);
-    }
-  };
-
-  MI.stopRecording = function () {
-    if (_mediaRecorder && _mediaRecorder.state !== 'inactive') {
-      _mediaRecorder.stop();
-    }
-    _isRecording = false;
-    document.getElementById('mockVoiceBtn').textContent = '🎤 语音回答';
-  };
 
   // ==================== 语音测试浮动按钮 ====================
 

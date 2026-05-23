@@ -34,6 +34,7 @@
     <button class="tab" data-tab="favorites">题目收藏</button>
     <button class="tab" data-tab="custom">自定义题目</button>
     <button class="tab" data-tab="finetune">微调</button>
+    <button class="tab" data-tab="asr">语音识别</button>
     <button class="tab" data-tab="settings">设置</button>
   </div>
 
@@ -218,11 +219,11 @@
         <div class="mock-input-area" id="mockInputArea">
           <textarea id="mockAnswerInput" placeholder="沉稳作答..." rows="4"></textarea>
           <div class="mock-input-actions">
-            <button class="mock-voice-btn" id="mockVoiceBtn" onclick="MockMate.MockInterview.toggleRecording()">🎤</button>
+            <button class="mock-voice-btn" id="mockVoiceBtn" onclick="MockMate.MockInterview.toggleRecording()" title="语音输入 (T 键开关)">🎤</button>
             <button class="mock-submit-btn" id="mockSubmitBtn" onclick="MockMate.MockInterview.submitAnswer()">提交回答</button>
             <span class="mock-submit-hint" id="mockSubmitHint"></span>
           </div>
-          <div class="mock-recording-status" id="mockRecordingStatus" style="font-size:12px;color:#8B94A7;margin-top:4px;text-align:center"></div>
+          <div class="mock-recording-status" id="mockRecordingStatus"></div>
           <div class="mock-anti-chat" id="mockAntiChat" style="opacity:0"></div>
         </div>
       </div>
@@ -347,6 +348,34 @@
     <div class="card" style="opacity:0.6">
       <h2>Adapter 管理 <span style="font-size:12px;color:var(--text2);font-weight:400">（开发中）</span></h2>
       <p style="font-size:13px;color:var(--text2)">将在后续版本中支持：加载/卸载 adapter、版本管理、训练数据对比</p>
+    </div>
+  </div>
+
+  <!-- ============ Tab: 语音识别 ============ -->
+  <div class="tab-content" id="tab-asr">
+    <div class="card">
+      <h2>实时语音识别（边说边出字）</h2>
+      <p style="font-size:13px;color:var(--text2);margin-bottom:12px">
+        按 <kbd>T</kbd> 键开关麦克风，支持 VAD 自动检测语音起止。
+        API Key 复用<a href="#" onclick="MockMate.switchTab('settings');return false">设置页</a>的 Qwen API Key。
+      </p>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <button class="btn btn-primary" id="asrMicBtn" onclick="MockMate.ASR.toggleMic()">🎤 打开麦克风</button>
+        <span id="asrStatus" style="font-size:13px;color:var(--text2)">就绪</span>
+        <span id="asrVadIndicator" style="display:none;font-size:13px;color:#22c55e">● 语音中</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>识别结果</h3>
+      <div id="asrResult" style="min-height:120px;padding:12px;background:var(--bg2);border-radius:8px;font-size:15px;line-height:1.8;white-space:pre-wrap;word-wrap:break-word">
+        <span style="color:var(--text2)">等待语音输入...</span>
+      </div>
+    </div>
+    <div class="card">
+      <h3>历史记录</h3>
+      <div id="asrHistory" style="font-size:14px;line-height:1.6">
+        <span style="color:var(--text2)">暂无记录</span>
+      </div>
     </div>
   </div>
 
@@ -535,6 +564,7 @@
 <script src="js/settings.js"></script>
 <script src="js/feedback.js"></script>
 <script src="js/finetune.js"></script>
+<script src="js/asr.js"></script>
 
 </body>
 </html>

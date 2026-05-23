@@ -14,7 +14,8 @@ frontend/
     ├── api.js              — API 层（get/post/delete/upload）
     ├── utils.js            — 工具函数（esc、toast、scoreColor、ROUND_NAMES 常量）
     ├── interview.js        — 传统面试流程（开始→出题→提交→评估→结束→报告）
-    ├── mock_interview.js   — 拟真面试全流程（WebSocket 流式出题/音频、面试官切换、评分）
+    ├── asr.js              — 实时语音识别引擎（AudioContext→PCM16→WebSocket，自适应噪声门）
+    ├── mock_interview.js   — 拟真面试全流程（WebSocket 流式出题/音频、面试官切换、实时语音输入）
     ├── research.js         — 岗位画像搜索 + 结果渲染
     ├── history.js          — 历史记录 + Chart.js 图表 + 统计摘要
     ├── favorites.js        — 题目收藏管理
@@ -22,13 +23,16 @@ frontend/
     ├── settings.js         — API Key 加密存储、Qwen 模型配置、提供商切换
     ├── auth.js             — 用户认证（邮箱验证码登录）
     ├── feedback.js         — 评分反馈（👍/👎 点踩、修正数据提交）
-    └── finetune.js         — 训练数据展示（统计、过滤、浏览）
+    ├── finetune.js         — 训练数据展示（统计、过滤、浏览）
+    └── tests/
+        └── voice_controller_test.js  — ASR 单元测试（FSM/Reducer/会话隔离/键盘防护）
 ```
 
 ### 依赖关系
 
 ```
 utils.js  ←──  api.js  ←──  app.js  ←──  interview.js
+                                        asr.js
                                         mock_interview.js  (WebSocket)
                                         research.js
                                         history.js  (依赖 Chart.js lib)
@@ -253,9 +257,9 @@ MockMate.state = {
 | mock | `MI._feedAudioChunk(base64)` | 每帧音频 | 解码 base64 并喂给音频缓冲区 |
 | mock | `MI.connectWebSocket()` | 面试开始 | 建立 WebSocket 连接 |
 | mock | `MI.showMockReport(data)` | 面试结束 | 渲染拟真面试报告 |
-| mock | `MI.toggleRecording()` | 点击录音按钮 | 切换麦克风录音（语音输入） |
-| mock | `MI.startRecording()` | 录音开始 | 请求麦克风权限，开始录制 |
-| mock | `MI.stopRecording()` | 录音结束 | 停止录制，ASR 转文字填入输入框 |
+| mock | `MI.toggleRecording()` | 点击录音按钮 / 按 T 键 | 切换实时流式语音输入（边说边出字），按钮有脉冲动画 |
+| asr | `M.ASR.startStream(opts)` | 调用方请求录音 | 返回 `{ stop, isActive, getState }`，通过回调推送 partial/final/speech_end |
+| asr | `M.ASR.stopStream()` | 调用方停止 | 优雅关闭：先发 stop→停轨道→断 WebSocket→关 AudioContext |
 | research | `R.doResearch(refresh)` | 点击分析按钮 | 搜索岗位画像 |
 | research | `R.renderProfileCard(data)` | 搜索完成 | 渲染完整画像卡片 |
 | history | `H.loadHistory()` | 切到历史 Tab | 加载记录列表 + 图表 |
@@ -366,8 +370,78 @@ IDLE → WS_CONNECTING → WS_OPEN → QUESTION_STREAM → AUDIO_STREAM → ANSW
 | 快捷键 | 功能 |
 |--------|------|
 | `Ctrl+Enter` | 提交回答 |
+| `T` | 开关麦克风（仅拟真面试进行中且该 Tab 活跃时生效） |
 | `Alt+1/2/3/4/5/6/7` | 切换 Tab |
 | `Escape` | 关闭 toast / 聚焦回答输入框 |
+
+---
+
+## 实时语音识别 (ASR) 架构
+
+### 数据流
+
+```
+麦克风  →  AudioContext  →  Float32 PCM  →  RMS 自适应噪声门  →  Int16 编码
+  →  base64  →  WebSocket  →  DashScope fun-asr-realtime
+  →  partial/final 回调  →  输入框实时更新
+```
+
+### VoiceState 状态机 (6 状态)
+
+```
+IDLE → REQUESTING_PERMISSION → CONNECTING → RECORDING → STOPPING → IDLE
+                                     ↓            ↑          ↓
+                                    ERROR ────→ IDLE   (cleanup_done)
+```
+
+- **严格转换表**：每个状态只接受特定事件，拒绝非法转换（如 RECORDING 时拒绝再次 start）
+- **双连接防护**：任何非 IDLE 状态拒绝新的麦克风请求
+- **会话隔离**：每次 `startStream()` 生成 UUID sessionId，旧 session 消息被丢弃
+
+### ASR Reducer（纯函数）
+
+partial 结果覆盖当前草稿，final 结果追加到确认文本后，避免文本丢失和累积错误。
+
+```javascript
+asrReducer(state, action):
+  partial     → { ...state, partialText: action.text }
+  final       → { finalText: state.finalText + action.text, partialText: '', awaitingFinal: false }
+  speech_end  → { ...state, awaitingFinal: true }
+  reset       → { finalText: '', partialText: '', awaitingFinal: false }
+```
+
+### 自适应噪声门
+
+跟踪环境噪声底噪（不对称包络追踪），门限 = max(0.002, 底噪 × 2.5) ≈ 8dB SNR。近场语音（>12dB SNR）放行，远场背景人声（<6dB SNR）过滤。
+
+### 可复用 API
+
+```javascript
+// 拟真面试使用（回调注入）
+var stream = M.ASR.startStream({
+  onPartial:  function (partialText, fullDisplayText) { /* 实时更新 */ },
+  onFinal:    function (finalText) { /* 追加到确认文本 */ },
+  onSpeechStart: function () { /* VAD 检测到语音 */ },
+  onSpeechEnd:   function () { /* VAD 检测到静音 */ },
+  onError:    function (msg) { /* 错误处理 */ },
+  onDone:     function () { /* 识别完成 */ },
+});
+stream.stop();           // 优雅关闭
+stream.isActive();       // 检查状态
+stream.getSessionId();   // 获取会话 ID
+```
+
+### 资源清理顺序
+
+1. `ws.send({type:'stop'})` — 通知服务端停止
+2. 停止麦克风轨道 (`track.stop()`)
+3. 断开音频节点 + 关闭 AudioContext
+4. 关闭 WebSocket 连接
+5. 状态机重置到 IDLE
+
+### 后端热词短语
+
+通过 `AsrPhraseManager` 创建 80+ 中英文技术术语短语表（Redis, MySQL, Kubernetes, 微服务, 缓存穿透…），传递给 `Recognition.start(phrase_id=...)` 提升专业词汇识别率。首次编译后缓存复用。
 
 ---
 

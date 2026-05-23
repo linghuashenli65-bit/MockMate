@@ -133,6 +133,8 @@ python run.py    # 直接运行
 | **WebSocket 流式聊天** | `backend/stream_chat.py` | AI 流式聊天 WebSocket 通信 |
 | **CosyVoice WebSocket** | `backend/cosyvoice_ws.py` | 阿里云 CosyVoice TTS WebSocket 长文本合成 |
 | **网页搜索** | `backend/web_research.py` | 多引擎并行搜索 + AI 整合成岗位画像 |
+| **实时语音识别(ASR)** | `backend/main.py` → `/api/asr/stream` | WebSocket 流式 ASR（PCM16→WAV→DashScope fun-asr-realtime），边说边出字 |
+| **ASR 热词管理** | `backend/asr_phrases.py` | 技术术语热词短语管理（80+ 中英文术语），提升专业词汇识别率 |
 | **语音合成** | `backend/tts.py` | 文字转语音 WAV |
 | **数据持久化** | `backend/database.py` | MySQL / JSON 文件双模式存储（会话、缓存、搜索历史） |
 | **配置** | `backend/config.py` | 环境变量和常量配置 |
