@@ -5,18 +5,27 @@
 ```
 backend/
 ├── main.py              # FastAPI 主服务，路由注册
-├── ai_client.py         # 统一 AI 客户端接口（双提供商路由）
+├── ai_client.py         # 统一 AI 客户端接口（四提供商路由 + fallback）
 ├── mimoclient.py        # MiMo API 封装
 ├── deepseek_client.py   # DeepSeek API 封装
+├── qwen_client.py       # 通义千问 API 封装（含流式 ASR / TTS）
+├── zhipu_client.py      # 智谱 GLM API 封装
 ├── interview_engine.py  # 面试引擎（Prompt 编排 + 输出解析）
 ├── web_research.py      # 岗位信息搜索 + 画像生成
 ├── tts.py               # 语音合成
+├── cosyvoice_ws.py      # CosyVoice 双向流式 TTS
+├── settings_crypto.py   # 用户 API Key 加密 / 掩码（Fernet）
 ├── database.py          # 数据持久化（MySQL / JSON 回退，含缓存和搜索历史）
+├── auth.py              # 用户认证（邮箱验证码 + JWT）
+├── mail.py              # 验证码邮件发送
+├── asr_phrases.py       # ASR 技术术语热词
 ├── config.py            # 环境变量和常量
 ├── stream_chat.py       # 流式 SSE 对话接口（独立模块，待集成）
+├── mock_interview/      # 拟真面试（引擎/状态/路由/安全/面试官配置）
+├── finetune/            # 训练数据采集 + LoRA 微调脚本
 └── data/                # 运行时数据
     ├── sessions/        # 面试会话 JSON
-    ├── audios/          # 语音 MP3
+    ├── audios/          # 语音 WAV
     └── mockmate.log     # 运行日志
 ```
 
@@ -26,7 +35,7 @@ backend/
 
 ### 1. AI 客户端体系 (`ai_client.py`)
 
-统一接口，屏蔽 MiMo / DeepSeek 差异：
+统一接口，屏蔽 MiMo / DeepSeek / 通义千问 / 智谱差异：
 
 ```
 AIClient
@@ -40,13 +49,14 @@ AIClient
 
 接口方法对照：
 
-| 方法 | MiMoClient | DeepSeekClient | 说明 |
-|------|-----------|---------------|------|
-| `reason()` | 推理模型 | 推理模型（空则降级 chat） | 深度推理 |
-| `chat_standard()` | 复用推理模型 | chat 模型 | 标准对话 |
-| `written_eval()` | 复用推理模型 | deepseek-chat 模型 | 笔试判卷 |
-| `extract_text_from_image()` | 多模态模型 | 不支持（返回 null） | 图片 OCR |
-| `text_to_speech()` | TTS 模型 | 不支持（返回 null） | 语音合成 |
+| 方法 | MiMo | DeepSeek | Qwen | Zhipu | 说明 |
+|------|------|---------|------|-------|------|
+| `reason()` | 推理模型 | 推理模型 | 推理模型 | 推理模型 | 深度推理 |
+| `chat_standard()` | 复用推理 | chat 模型 | chat 模型 | chat 模型 | 标准对话 |
+| `written_eval()` | 复用推理 | deepseek-chat | qwen-turbo | glm-4-flash | 笔试判卷 |
+| `extract_text_from_image()` | 多模态 | 不支持 | qwen-vl | glm-4v | 图片 OCR |
+| `text_to_speech()` | TTS 模型 | 不支持 | CosyVoice | GLM-TTS | 语音合成 |
+| `speech_to_text()` | — | — | Paraformer | — | 语音识别 |
 
 **添加新提供商**：在 `config.py` 加配置项 → 新建客户端类（实现 `reason()`、`chat_standard()`、`written_eval()`）→ 在 `ai_client.py` 注册。
 

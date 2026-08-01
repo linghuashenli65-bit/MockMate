@@ -93,3 +93,16 @@ CREATE TABLE IF NOT EXISTS custom_questions (
     updated_at       DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_user_id (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='自定义题目表';
+
+-- ==================== 用户设置表 ====================
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id       INT            PRIMARY KEY              COMMENT '用户ID（关联 users.id）',
+    provider      VARCHAR(20)    DEFAULT 'mimo'           COMMENT '默认 AI 提供商(mimo/deepseek/qwen/zhipu)',
+    mimo_key      TEXT                                    COMMENT 'MiMo API Key（Fernet 加密）',
+    deepseek_key  TEXT                                    COMMENT 'DeepSeek API Key（Fernet 加密）',
+    qwen_key      TEXT                                    COMMENT '通义千问 API Key（Fernet 加密）',
+    zhipu_key     TEXT                                    COMMENT '智谱 API Key（Fernet 加密）',
+    models        JSON                                    COMMENT '能力模型覆盖配置(JSON)',
+    tts_enabled   TINYINT        DEFAULT 1                COMMENT '语音播报开关',
+    updated_at    DATETIME       DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户AI设置表';

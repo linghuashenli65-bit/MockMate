@@ -1,4 +1,6 @@
-# Frontend — 开发文档
+# Frontend（旧版，已废弃）— 开发文档
+
+> **注意**：此目录为早期原生 JS 实现，已由 `frontend-vue/`（Vue 3 + Vite）替代，仅保留作参考。后端当前托管 `frontend-vue/dist`。
 
 ## 架构概述
 

@@ -31,6 +31,7 @@ from docx import Document
 from .config import HOST, PORT, DATA_DIR, ALLOW_SHARED_API_KEY, QWEN_API_KEY
 from .asr_phrases import get_or_create_vocabulary_id
 from .ai_client import AIClient
+from .settings_crypto import encrypt_key, decrypt_key, mask_key
 from .web_research import WebResearch
 from .interview_engine import InterviewEngine, QuestionPool, load_pool_cache, save_pool_cache
 from .tts import TTSEngine
@@ -40,7 +41,7 @@ from .mail import create_mailer, send_verification_email
 from .auth import (
     create_access_token, generate_code, save_code, verify_code,
     create_user, authenticate_user, get_user_by_id, email_exists,
-    get_current_user, init_user_tables,
+    get_current_user, get_current_user_optional, init_user_tables,
 )
 from .mock_interview.interviewer_config import InterviewerConfig, InterviewerManager
 from .mock_interview.api_router import MockInterviewRouter
@@ -112,53 +113,121 @@ async def background_refill(session_id: str, pool: QuestionPool, resume: str, pr
         logger.error(f"后台补题失败 [{session_id}]: {e}")
 
 
-# -------- API Key 请求头提取 --------
+# -------- API Key 解析：请求头（旧前端兼容）→ 用户设置 → 全局 --------
 
-def get_user_ai(
-    x_mimo_api_key: Optional[str] = Header(None, alias="X-Mimo-Api-Key"),
-    x_deepseek_api_key: Optional[str] = Header(None, alias="X-Deepseek-Api-Key"),
-    x_qwen_api_key: Optional[str] = Header(None, alias="X-Qwen-Api-Key"),
-    x_qwen_model_reasoner: Optional[str] = Header(None, alias="X-Qwen-Model-Reasoner"),
-    x_qwen_model_chat: Optional[str] = Header(None, alias="X-Qwen-Model-Chat"),
-    x_qwen_model_written_eval: Optional[str] = Header(None, alias="X-Qwen-Model-Written-Eval"),
-    x_qwen_tts_model: Optional[str] = Header(None, alias="X-Qwen-Tts-Model"),
-    x_zhipu_api_key: Optional[str] = Header(None, alias="X-Zhipu-Api-Key"),
-    x_zhipu_model_reasoner: Optional[str] = Header(None, alias="X-Zhipu-Model-Reasoner"),
-    x_zhipu_model_chat: Optional[str] = Header(None, alias="X-Zhipu-Model-Chat"),
-    x_zhipu_model_written_eval: Optional[str] = Header(None, alias="X-Zhipu-Model-Written-Eval"),
-    x_zhipu_tts_model: Optional[str] = Header(None, alias="X-Zhipu-Tts-Model"),
-    x_ai_provider: Optional[str] = Header(None, alias="X-Ai-Provider"),
-) -> AIClient:
-    """从请求头提取 API Key，创建 per-request 的 AIClient。"""
-    has_any_key = x_mimo_api_key or x_deepseek_api_key or x_qwen_api_key or x_zhipu_api_key
-    if has_any_key:
-        return ai.with_keys(
-            mimo_key=x_mimo_api_key,
-            deepseek_key=x_deepseek_api_key,
-            qwen_key=x_qwen_api_key,
-            qwen_reasoner_model=x_qwen_model_reasoner,
-            qwen_chat_model=x_qwen_model_chat,
-            qwen_written_eval_model=x_qwen_model_written_eval,
-            qwen_tts_model=x_qwen_tts_model,
-            zhipu_key=x_zhipu_api_key,
-            zhipu_reasoner_model=x_zhipu_model_reasoner,
-            zhipu_chat_model=x_zhipu_model_chat,
-            zhipu_written_eval_model=x_zhipu_model_written_eval,
-            zhipu_tts_model=x_zhipu_tts_model,
-            provider=x_ai_provider,
-        )
-    if x_ai_provider:
-        return ai.with_keys(provider=x_ai_provider)
-    if not ALLOW_SHARED_API_KEY:
-        raise HTTPException(401, "请提供 API Key（通过 X-Mimo-Api-Key / X-Deepseek-Api-Key / X-Qwen-Api-Key / X-Zhipu-Api-Key 请求头）")
-    logger.warning("未提供 API Key 的请求正在使用全局配置的 Key（如需关闭请设置 ALLOW_SHARED_API_KEY=false）")
-    return ai
+AI_PROVIDERS = ("mimo", "deepseek", "qwen", "zhipu")
+MODEL_CONFIG_KEYS = (
+    "qwen_reasoner_model", "qwen_chat_model", "qwen_written_eval_model", "qwen_tts_model",
+    "zhipu_reasoner_model", "zhipu_chat_model", "zhipu_written_eval_model", "zhipu_tts_model",
+)
+
+
+def _build_user_ai_dependency(require_key: bool):
+    """构建 get_user_ai 依赖
+
+    Key 解析优先级：请求头（旧前端兼容）→ 登录用户服务端设置 → 全局 .env Key。
+    require_key=True 时，无任何 Key 来源且未开启全局共享则返回 401（保护 AI 路由）；
+    require_key=False 时（如 /api/status）静默回退全局配置。
+    """
+    async def _dependency(
+        x_mimo_api_key: Optional[str] = Header(None, alias="X-Mimo-Api-Key"),
+        x_deepseek_api_key: Optional[str] = Header(None, alias="X-Deepseek-Api-Key"),
+        x_qwen_api_key: Optional[str] = Header(None, alias="X-Qwen-Api-Key"),
+        x_qwen_model_reasoner: Optional[str] = Header(None, alias="X-Qwen-Model-Reasoner"),
+        x_qwen_model_chat: Optional[str] = Header(None, alias="X-Qwen-Model-Chat"),
+        x_qwen_model_written_eval: Optional[str] = Header(None, alias="X-Qwen-Model-Written-Eval"),
+        x_qwen_tts_model: Optional[str] = Header(None, alias="X-Qwen-Tts-Model"),
+        x_zhipu_api_key: Optional[str] = Header(None, alias="X-Zhipu-Api-Key"),
+        x_zhipu_model_reasoner: Optional[str] = Header(None, alias="X-Zhipu-Model-Reasoner"),
+        x_zhipu_model_chat: Optional[str] = Header(None, alias="X-Zhipu-Model-Chat"),
+        x_zhipu_model_written_eval: Optional[str] = Header(None, alias="X-Zhipu-Model-Written-Eval"),
+        x_zhipu_tts_model: Optional[str] = Header(None, alias="X-Zhipu-Tts-Model"),
+        x_ai_provider: Optional[str] = Header(None, alias="X-Ai-Provider"),
+        current_user: Optional[dict] = Depends(get_current_user_optional),
+    ) -> AIClient:
+        has_any_key = x_mimo_api_key or x_deepseek_api_key or x_qwen_api_key or x_zhipu_api_key
+        if has_any_key:
+            # 旧前端兼容：请求头优先
+            return ai.with_keys(
+                mimo_key=x_mimo_api_key,
+                deepseek_key=x_deepseek_api_key,
+                qwen_key=x_qwen_api_key,
+                qwen_reasoner_model=x_qwen_model_reasoner,
+                qwen_chat_model=x_qwen_model_chat,
+                qwen_written_eval_model=x_qwen_model_written_eval,
+                qwen_tts_model=x_qwen_tts_model,
+                zhipu_key=x_zhipu_api_key,
+                zhipu_reasoner_model=x_zhipu_model_reasoner,
+                zhipu_chat_model=x_zhipu_model_chat,
+                zhipu_written_eval_model=x_zhipu_model_written_eval,
+                zhipu_tts_model=x_zhipu_tts_model,
+                provider=x_ai_provider,
+            )
+        # 登录用户：读取服务端设置
+        if current_user:
+            settings = await db.get_user_settings(current_user["id"])
+            if settings and any(settings.get("keys", {}).values()):
+                user_models = settings.get("models", {}) or {}
+                return ai.with_keys(
+                    mimo_key=decrypt_key(settings["keys"].get("mimo")),
+                    deepseek_key=decrypt_key(settings["keys"].get("deepseek")),
+                    qwen_key=decrypt_key(settings["keys"].get("qwen")),
+                    qwen_reasoner_model=user_models.get("qwen_reasoner_model"),
+                    qwen_chat_model=user_models.get("qwen_chat_model"),
+                    qwen_written_eval_model=user_models.get("qwen_written_eval_model"),
+                    qwen_tts_model=user_models.get("qwen_tts_model"),
+                    zhipu_key=decrypt_key(settings["keys"].get("zhipu")),
+                    zhipu_reasoner_model=user_models.get("zhipu_reasoner_model"),
+                    zhipu_chat_model=user_models.get("zhipu_chat_model"),
+                    zhipu_written_eval_model=user_models.get("zhipu_written_eval_model"),
+                    zhipu_tts_model=user_models.get("zhipu_tts_model"),
+                    provider=settings.get("provider") or x_ai_provider,
+                )
+        if x_ai_provider:
+            return ai.with_keys(provider=x_ai_provider)
+        if require_key and not ALLOW_SHARED_API_KEY:
+            raise HTTPException(401, "请提供 API Key（在设置页配置，或通过 X-*-Api-Key 请求头提供）")
+        if not has_any_key and not x_ai_provider:
+            logger.warning("未提供 API Key 的请求正在使用全局配置的 Key（如需关闭请设置 ALLOW_SHARED_API_KEY=false）")
+        return ai
+    return _dependency
+
+
+get_user_ai = _build_user_ai_dependency(require_key=True)
+get_user_ai_optional = _build_user_ai_dependency(require_key=False)
 
 
 # ---------- Request Models ----------
 
 class ConfigUpdate(BaseModel):
     provider: str = ""
+
+
+class SettingsUpdate(BaseModel):
+    provider: Optional[str] = None
+    keys: Optional[dict] = None      # {"mimo": "新key" | ""}，空串表示清除
+    models: Optional[dict] = None    # {"qwen_reasoner_model": "..." | ""}
+    tts_enabled: Optional[bool] = None
+
+
+def _mask_settings(settings: dict) -> dict:
+    """将存储的用户设置转为对外安全视图（Key 只给掩码）"""
+    keys = settings.get("keys", {}) or {}
+    keys_masked = {}
+    configured = {}
+    for p in AI_PROVIDERS:
+        raw = keys.get(p, "")
+        keys_masked[p] = mask_key(decrypt_key(raw)) if raw else None
+        configured[p] = bool(raw)
+    models = {k: v for k, v in (settings.get("models", {}) or {}).items() if v}
+    return {
+        "provider": settings.get("provider") or "mimo",
+        "keys": keys_masked,
+        "configured": configured,
+        "models": models,
+        "tts_enabled": bool(settings.get("tts_enabled", True)),
+    }
+
 
 # ---------- Auth Request Models ----------
 
@@ -288,7 +357,7 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, 
 # ==================== 基础 ====================
 
 @app.get("/api/status")
-async def get_status(user_ai: AIClient = Depends(get_user_ai)):
+async def get_status(user_ai: AIClient = Depends(get_user_ai_optional)):
     stats = await db.cache_stats()
     return {
         "status": "ok",
@@ -310,6 +379,64 @@ def update_config(cfg: ConfigUpdate, user_ai: AIClient = Depends(get_user_ai)):
     if cfg.provider in ("mimo", "deepseek", "qwen", "zhipu"):
         user_ai.provider = cfg.provider
     return {"message": "配置已更新"}
+
+
+# ==================== 用户设置（服务端存储）====================
+
+@app.get("/api/settings")
+async def get_settings(current_user: dict = Depends(get_current_user)):
+    """获取当前用户的 AI 设置（Key 只返回掩码）"""
+    settings = await db.get_user_settings(current_user["id"])
+    if not settings:
+        return {
+            "provider": "mimo",
+            "keys": {p: None for p in AI_PROVIDERS},
+            "configured": {p: False for p in AI_PROVIDERS},
+            "models": {},
+            "tts_enabled": True,
+        }
+    return _mask_settings(settings)
+
+
+@app.put("/api/settings")
+async def update_settings(req: SettingsUpdate, current_user: dict = Depends(get_current_user)):
+    """部分更新用户设置：provider / keys / models / tts_enabled"""
+    current = await db.get_user_settings(current_user["id"]) or {
+        "provider": "mimo", "keys": {}, "models": {}, "tts_enabled": True,
+    }
+
+    if req.provider:
+        if req.provider not in AI_PROVIDERS:
+            raise HTTPException(400, f"无效的提供商: {req.provider}")
+        current["provider"] = req.provider
+
+    if req.keys is not None:
+        keys = dict(current.get("keys", {}) or {})
+        for provider, value in req.keys.items():
+            if provider not in AI_PROVIDERS:
+                continue
+            value = (value or "").strip()
+            keys[provider] = encrypt_key(value) if value else ""
+        current["keys"] = keys
+
+    if req.models is not None:
+        models = dict(current.get("models", {}) or {})
+        for key, value in req.models.items():
+            if key not in MODEL_CONFIG_KEYS:
+                continue
+            value = (value or "").strip()
+            if value:
+                models[key] = value
+            else:
+                models.pop(key, None)
+        current["models"] = models
+
+    if req.tts_enabled is not None:
+        current["tts_enabled"] = req.tts_enabled
+
+    await db.save_user_settings(current_user["id"], current)
+    saved = await db.get_user_settings(current_user["id"]) or current
+    return _mask_settings(saved)
 
 
 # ==================== 用户认证 ====================
@@ -1023,6 +1150,7 @@ async def get_session(session_id: str):
         cq = {k: v for k, v in cq.items() if not k.startswith("__")}
     return {
         "id": session["id"],
+        "type": "mock" if (session.get("round") or "") == "mock" else "normal",
         "position": session.get("position"),
         "company": session.get("company"),
         "date": session.get("created_at", ""),
@@ -1170,6 +1298,20 @@ async def delete_interviewer(interviewer_id: str):
 
 # ----- 拟真面试会话 -----
 
+async def _persist_mock_report(session_id: str, result: dict) -> None:
+    """将拟真面试报告（含问答历史与评分）持久化到数据库"""
+    try:
+        session = await db.load_session(session_id)
+        if session:
+            session["status"] = "completed"
+            session["report"] = result
+            if result.get("history"):
+                session["history"] = result["history"]
+            await db.save_session(session_id, session)
+    except Exception as e:
+        logger.warning(f"保存拟真面试报告失败: {e}")
+
+
 @app.post("/api/mock/interview/start")
 async def mock_interview_start(req: MockInterviewStartRequest,
                                 user_ai: AIClient = Depends(get_user_ai),
@@ -1239,14 +1381,7 @@ async def mock_interview_end(session_id: str,
     try:
         result = await router.end_session(session_id)
         # 保存报告到数据库
-        try:
-            session = await db.load_session(session_id)
-            if session:
-                session["status"] = "completed"
-                session["report"] = result
-                await db.save_session(session_id, session)
-        except Exception as e:
-            logger.warning(f"保存面试报告失败: {e}")
+        await _persist_mock_report(session_id, result)
         return result
     except ValueError as e:
         raise HTTPException(404, str(e))
@@ -1278,8 +1413,19 @@ async def mock_interview_report(session_id: str,
             "history": engine.state.get("history", []),
             "phase": engine.state.get("phase"),
         }
-    except ValueError as e:
-        raise HTTPException(404, str(e))
+    except ValueError:
+        # 引擎不在内存（服务重启后）时从数据库读取持久化报告
+        session = await db.load_session(session_id)
+        if not session:
+            raise HTTPException(404, "会话不存在")
+        report = session.get("report", {}) or {}
+        return {
+            "session_id": session_id,
+            "coverage": report.get("coverage", {}),
+            "total_questions": report.get("total_questions", 0),
+            "history": report.get("history", session.get("history", [])),
+            "phase": report.get("phase", "completed"),
+        }
 
 
 @app.get("/api/mock/interview/history")
@@ -1287,10 +1433,7 @@ async def mock_interview_history(current_user: dict = Depends(get_current_user))
     """获取用户的拟真面试历史记录"""
     try:
         sessions = await db.list_sessions(user_id=current_user["id"])
-        mock_sessions = [
-            s for s in sessions
-            if s.get("type") == "mock" or s.get("id", "").startswith("mock_")
-        ]
+        mock_sessions = [s for s in sessions if s.get("type") == "mock"]
         return {"sessions": mock_sessions[:50]}
     except Exception as e:
         logger.warning(f"获取拟真面试历史失败: {e}")
@@ -1390,6 +1533,7 @@ async def mock_interview_ws(websocket: WebSocket, session_id: str):
                         })
                     elif stage == "result":
                         if payload.get("completed"):
+                            await _persist_mock_report(session_id, payload)
                             await websocket.send_json({
                                 "type": "end",
                                 "session_id": session_id,
@@ -1426,6 +1570,7 @@ async def mock_interview_ws(websocket: WebSocket, session_id: str):
 
             elif msg_type == "end_request":
                 result = await mock_interview_router.end_session(session_id)
+                await _persist_mock_report(session_id, result)
                 await websocket.send_json({
                     "type": "end",
                     "session_id": session_id,
@@ -1486,7 +1631,13 @@ def _make_wav_header(data_size: int, sample_rate: int = 16000) -> bytes:
 
 
 @app.websocket("/api/asr/stream")
-async def asr_stream_ws(websocket: WebSocket, api_key: str = Query(""), vad: bool = Query(False), fmt: str = Query("pcm")):
+async def asr_stream_ws(
+    websocket: WebSocket,
+    api_key: str = Query(""),
+    vad: bool = Query(False),
+    fmt: str = Query("pcm"),
+    current_user: Optional[dict] = Depends(get_current_user_optional),
+):
     """实时语音识别 WebSocket — 边说边出字
 
     VAD 模式（vad=true）：DashScope 自动检测语音起止，持续识别不中断。
@@ -1507,7 +1658,14 @@ async def asr_stream_ws(websocket: WebSocket, api_key: str = Query(""), vad: boo
     """
     await websocket.accept()
 
-    key = api_key or QWEN_API_KEY
+    key = api_key
+    if not key and current_user:
+        # 新前端：优先使用登录用户服务端设置的 Qwen Key
+        user_settings = await db.get_user_settings(current_user["id"])
+        if user_settings:
+            key = decrypt_key((user_settings.get("keys", {}) or {}).get("qwen", ""))
+    if not key:
+        key = QWEN_API_KEY
     if not key or key == "your-api-key-here":
         await websocket.send_json({"type": "error", "message": "未配置 API Key"})
         await websocket.close()
@@ -1708,9 +1866,33 @@ async def asr_stream_ws(websocket: WebSocket, api_key: str = Query(""), vad: boo
 
 # ==================== 前端 ====================
 
-FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
-if FRONTEND_DIR.exists():
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+# Vue 3 构建产物优先；未构建时回退到旧版 frontend/
+FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend-vue" / "dist"
+if not FRONTEND_DIR.exists():
+    FRONTEND_DIR = Path(__file__).resolve().parent.parent / "frontend"
+
+
+@app.get("/", include_in_schema=False)
+async def _serve_frontend_index():
+    index = FRONTEND_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    raise HTTPException(404, "前端未构建，请先运行 cd frontend-vue && npm run build")
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+async def _spa_fallback(full_path: str):
+    """静态文件 + SPA 回退：存在的文件直接返回，否则给 index.html（支持 history 路由）"""
+    if full_path.startswith("api/"):
+        raise HTTPException(404, "Not Found")
+    candidate = (FRONTEND_DIR / full_path).resolve()
+    root = FRONTEND_DIR.resolve()
+    if (candidate == root or root in candidate.parents) and candidate.is_file():
+        return FileResponse(str(candidate))
+    index = FRONTEND_DIR / "index.html"
+    if index.exists():
+        return FileResponse(str(index))
+    raise HTTPException(404, "Not Found")
 
 
 # ==================== 启动 ====================

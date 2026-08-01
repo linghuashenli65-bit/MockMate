@@ -48,5 +48,16 @@ backend/data/voice_cache.json
 # Research cache
 backend/data/research_cache.json
 
+# User settings (encrypted API keys, JSON fallback)
+backend/data/user_settings.json
+
+# LoRA model artifacts
+models/
+
+# Test / temp files
+=0.46.1
+test.py
+backend/data/test_asr.wav
+
 # Screenshots
 ScreenShot_*.png

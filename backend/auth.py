@@ -181,3 +181,19 @@ async def get_current_user(
     user_id = int(payload.get("sub", 0))
     email = payload.get("email", "")
     return {"id": user_id, "email": email}
+
+
+async def get_current_user_optional(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Optional[dict]:
+    """从 JWT Token 获取当前用户；未登录/Token 无效时返回 None（不抛错）"""
+    if credentials is None:
+        return None
+    payload = decode_access_token(credentials.credentials)
+    if payload is None:
+        return None
+    try:
+        user_id = int(payload.get("sub", 0))
+    except (TypeError, ValueError):
+        return None
+    return {"id": user_id, "email": payload.get("email", "")}

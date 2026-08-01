@@ -132,6 +132,19 @@ class Database:
                         INDEX idx_user_id (user_id)
                     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """)
+                    await cur.execute("""
+                    CREATE TABLE IF NOT EXISTS user_settings (
+                        user_id INT PRIMARY KEY,
+                        provider VARCHAR(20) DEFAULT 'mimo',
+                        mimo_key TEXT,
+                        deepseek_key TEXT,
+                        qwen_key TEXT,
+                        zhipu_key TEXT,
+                        models JSON,
+                        tts_enabled TINYINT DEFAULT 1,
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+                    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                """)
                     # 迁移：补齐旧表可能缺失的字段
                     for tbl, col, definition in [
                         ("sessions", "user_id", "INT DEFAULT NULL"),
@@ -153,6 +166,99 @@ class Database:
                         except Exception:
                             pass
                     logger.info("数据库表初始化完成")
+
+    # ==================== 用户设置 ====================
+
+    async def get_user_settings(self, user_id: int) -> Optional[dict]:
+        """获取用户设置；未配置时返回 None"""
+        if not self.available:
+            return self._get_user_settings_fallback(user_id)
+        async with self.pool.acquire() as conn:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                await cur.execute(
+                    "SELECT provider, mimo_key, deepseek_key, qwen_key, zhipu_key, models, tts_enabled "
+                    "FROM user_settings WHERE user_id=%s",
+                    (user_id,),
+                )
+                row = await cur.fetchone()
+                if not row:
+                    return None
+                models = row.get("models") or {}
+                if isinstance(models, str):
+                    try:
+                        models = json.loads(models)
+                    except Exception:
+                        models = {}
+                return {
+                    "provider": row.get("provider") or "mimo",
+                    "keys": {
+                        "mimo": row.get("mimo_key") or "",
+                        "deepseek": row.get("deepseek_key") or "",
+                        "qwen": row.get("qwen_key") or "",
+                        "zhipu": row.get("zhipu_key") or "",
+                    },
+                    "models": models if isinstance(models, dict) else {},
+                    "tts_enabled": bool(row.get("tts_enabled", 1)),
+                }
+
+    async def save_user_settings(self, user_id: int, data: dict) -> None:
+        """保存用户设置（整体覆盖存储字段）"""
+        if not self.available:
+            return self._save_user_settings_fallback(user_id, data)
+        keys = data.get("keys", {})
+        models = data.get("models", {})
+        async with self.pool.acquire() as conn:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    """
+                    INSERT INTO user_settings (user_id, provider, mimo_key, deepseek_key, qwen_key, zhipu_key, models, tts_enabled)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ON DUPLICATE KEY UPDATE
+                        provider=VALUES(provider),
+                        mimo_key=VALUES(mimo_key),
+                        deepseek_key=VALUES(deepseek_key),
+                        qwen_key=VALUES(qwen_key),
+                        zhipu_key=VALUES(zhipu_key),
+                        models=VALUES(models),
+                        tts_enabled=VALUES(tts_enabled)
+                    """,
+                    (
+                        user_id,
+                        data.get("provider", "mimo"),
+                        keys.get("mimo", ""),
+                        keys.get("deepseek", ""),
+                        keys.get("qwen", ""),
+                        keys.get("zhipu", ""),
+                        json.dumps(models, ensure_ascii=False),
+                        1 if data.get("tts_enabled", True) else 0,
+                    ),
+                )
+
+    def _get_user_settings_fallback(self, user_id: int) -> Optional[dict]:
+        """JSON 文件回退：读取用户设置"""
+        all_settings = self._load_user_settings_file()
+        return all_settings.get(str(user_id))
+
+    def _save_user_settings_fallback(self, user_id: int, data: dict) -> None:
+        """JSON 文件回退：保存用户设置"""
+        all_settings = self._load_user_settings_file()
+        merged = dict(all_settings.get(str(user_id), {}))
+        merged.update(data)
+        all_settings[str(user_id)] = merged
+        (DATA_DIR / "user_settings.json").write_text(
+            json.dumps(all_settings, ensure_ascii=False, indent=2), encoding="utf-8",
+        )
+
+    @staticmethod
+    def _load_user_settings_file() -> dict:
+        path = DATA_DIR / "user_settings.json"
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+                return data if isinstance(data, dict) else {}
+            except Exception:
+                return {}
+        return {}
 
     # ==================== 会话管理 ====================
 
@@ -238,13 +344,14 @@ class Database:
                     report = json.loads(row[6]) if row[6] else {}
                     result.append({
                         "id": row[0],
-                        "type": "normal",
+                        "type": "mock" if (row[3] or "") == "mock" else "normal",
                         "position": row[1] or "未知",
                         "company": row[2] or "",
                         "round": row[3] or "",
                         "date": row[4].isoformat() if row[4] else "",
                         "total_questions": len(history),
                         "overall_score": report.get("overall_score", 0),
+                        "coverage": report.get("coverage", {}),
                         "score_breakdown": report.get("score_breakdown", {}),
                         "weaknesses": report.get("weaknesses", []),
                         "preparation_advice": report.get("preparation_advice", []),
@@ -274,6 +381,7 @@ class Database:
             written_total = current_question.pop("__written_total__", 0)
         return {
             "id": data["id"],
+            "type": "mock" if (data.get("round") or "") == "mock" else "normal",
             "position": data.get("position", ""),
             "company": data.get("company", ""),
             "round": data.get("round", ""),

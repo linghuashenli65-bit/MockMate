@@ -527,12 +527,18 @@ class MockInterviewEngine:
     async def _finish(self) -> dict:
         """结束面试"""
         self.state = update_phase(self.state, "completed")
+        history = self.state.get("history", [])
+        answers = [h for h in history if h.get("type") == "answer"]
+        scored = [a.get("score") for a in answers if isinstance(a.get("score"), (int, float))]
         return {
             "completed": True,
             "session_id": self.session_id,
             "coverage": self.get_coverage_report(),
             "total_questions": len(get_question_history(self.state)),
             "phase": "completed",
+            "history": history,
+            "overall_score": round(sum(scored) / len(scored)) if scored else None,
+            "answered_questions": len(scored),
         }
 
     def _parse_question(self, raw: str) -> Optional[dict]:
