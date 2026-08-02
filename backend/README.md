@@ -53,7 +53,7 @@ AIClient
 |------|------|---------|------|-------|------|
 | `reason()` | 推理模型 | 推理模型 | 推理模型 | 推理模型 | 深度推理 |
 | `chat_standard()` | 复用推理 | chat 模型 | chat 模型 | chat 模型 | 标准对话 |
-| `written_eval()` | 复用推理 | deepseek-chat | qwen-turbo | glm-4-flash | 笔试判卷 |
+| `written_eval()` | 复用推理 | deepseek-v4-flash | qwen-turbo | glm-4-flash | 笔试判卷 |
 | `extract_text_from_image()` | 多模态 | 不支持 | qwen-vl | glm-4v | 图片 OCR |
 | `text_to_speech()` | TTS 模型 | 不支持 | CosyVoice | GLM-TTS | 语音合成 |
 | `speech_to_text()` | — | — | Paraformer | — | 语音识别 |

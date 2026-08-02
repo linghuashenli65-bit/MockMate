@@ -46,7 +46,7 @@ DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 DEEPSEEK_MODEL = "deepseek-v4-flash"
 DEEPSEEK_MODEL_REASONER = "deepseek-v4-flash"
 DEEPSEEK_MODEL_CHAT = "deepseek-v4-flash"
-DEEPSEEK_MODEL_WRITTEN_EVAL = "deepseek-chat"
+DEEPSEEK_MODEL_WRITTEN_EVAL = "deepseek-v4-flash"
 
 # Qwen (通义千问) API — OpenAI 兼容接口
 QWEN_API_BASE = "https://dashscope.aliyuncs.com/compatible-mode/v1"
