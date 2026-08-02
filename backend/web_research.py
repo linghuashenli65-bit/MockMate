@@ -66,9 +66,17 @@ SYNONYM_SOURCES = {
     ],
 }
 
-# 搜索引擎配置
-# DuckDuckGo 在中国可能被屏蔽，所以用 Bing 作为主要搜索引擎
+# 搜索引擎配置：360 对国内公司与招聘网站索引最好，Bing/百度兜底
 SEARCH_ENGINES = [
+    {
+        "name": "360",
+        "url": "https://www.so.com/s",
+        "method": "GET",
+        "param_field": "q",
+        "result_selector": "li.res-list",
+        "snippet_selector": ".res-desc, .res-rich, .res-linkinfo",
+        "url_selector": "h3 a",
+    },
     {
         "name": "bing",
         "url": "https://www.bing.com/search",
@@ -79,13 +87,13 @@ SEARCH_ENGINES = [
         "url_selector": "h2 a",
     },
     {
-        "name": "duckduckgo",
-        "url": "https://html.duckduckgo.com/html/",
-        "method": "POST",
-        "data_field": "q",
-        "result_selector": ".result",
-        "snippet_selector": ".result__snippet",
-        "url_selector": ".result__a",
+        "name": "baidu",
+        "url": "https://www.baidu.com/s",
+        "method": "GET",
+        "param_field": "wd",
+        "result_selector": "div.result, div.c-container",
+        "snippet_selector": ".c-abstract, .c-span-last",
+        "url_selector": "h3 a",
     },
 ]
 
@@ -97,8 +105,8 @@ USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36 Edg/125.0.0.0",
 ]
 
-HTTP_TIMEOUT = 15.0
-MAX_RETRIES = 2
+HTTP_TIMEOUT = 8.0
+MAX_RETRIES = 1
 
 
 class WebResearch:
@@ -212,7 +220,7 @@ class WebResearch:
                 for t in SYNONYM_SOURCES.get(category, [])
             )
         queries = queries[:10]  # 控制搜索量，避免过慢
-        tasks = [self._search_with_fallback(q) for q in queries]
+        tasks = [self._search_with_fallback(q, company=company) for q in queries]
         results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
         results = []
@@ -227,14 +235,32 @@ class WebResearch:
                 logger.warning(f"  {category}搜索失败 [{q}]: {r}")
         return results
 
-    async def _search_with_fallback(self, query: str, max_results: int = 5):
-        """多搜索引擎搜索，逐个尝试直到拿到结果，返回 (snippets, urls)"""
+    def _company_token(self, company: str) -> str:
+        """提取公司名的辨识部分（去掉上海/北京等城市前缀），用于结果相关性过滤"""
+        c = (company or "").strip()
+        if not c:
+            return ""
+        if len(c) <= 4:
+            return c
+        for prefix in ("上海", "北京", "深圳", "广州", "杭州", "南京", "成都", "武汉", "重庆", "天津", "西安", "苏州", "宁波", "厦门", "中国"):
+            if c.startswith(prefix):
+                return c[len(prefix):]
+        return c[-4:]
+
+    async def _search_with_fallback(self, query: str, max_results: int = 5, company: str = ""):
+        """多搜索引擎搜索：拿到"相关"结果才返回；公司定向查询未命中公司名则继续试下一个引擎"""
+        token = self._company_token(company)
         for engine in SEARCH_ENGINES:
             snippets, urls = await self._search_engine(engine, query, max_results)
-            if snippets:
+            if snippets and (not token or self._results_relevant(snippets, urls, token)):
                 return snippets, urls
-            logger.info(f"{engine['name']} 无结果，尝试下一个搜索引擎: {query}")
+            logger.info(f"{engine['name']} 无相关结果，尝试下一个搜索引擎: {query}")
         return [], []
+
+    def _results_relevant(self, snippets: list[str], urls: list[str], token: str) -> bool:
+        """相关性判断：摘要或链接中必须包含公司辨识名（如'喆塔'）"""
+        text = " ".join(snippets) + " " + " ".join(urls)
+        return token in text
 
     async def _search_engine(self, engine: dict, query: str, max_results: int):
         """使用指定搜索引擎搜索，返回 (snippets, urls)"""
@@ -264,7 +290,7 @@ class WebResearch:
             except Exception as e:
                 logger.warning(f"  {engine['name']} 错误: {e} (尝试 {attempt + 1}/{MAX_RETRIES})")
             if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
         return [], []
 
     def _parse_results(self, html: str, engine: dict, max_results: int):
