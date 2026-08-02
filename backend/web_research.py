@@ -46,6 +46,26 @@ SEARCH_SOURCES = {
     ],
 }
 
+# 同义岗位名称的搜索模板：{term} 为同义词，{company} 为公司
+SYNONYM_SOURCES = {
+    "jobs": [
+        "{term} 岗位要求 技能要求",
+        "{term} JD 职位描述 任职要求",
+    ],
+    "interviews": [
+        "{term} 面经 面试经验",
+        "{term} 面试 知乎",
+    ],
+    "company_jobs": [
+        "{company} {term} 招聘 岗位职责 薪资待遇",
+        "{company} {term} JD 任职要求 招聘公告",
+    ],
+    "company_interviews": [
+        "{company} {term} 面经 面试经验",
+        "{company} {term} 薪资 待遇",
+    ],
+}
+
 # 搜索引擎配置
 # DuckDuckGo 在中国可能被屏蔽，所以用 Bing 作为主要搜索引擎
 SEARCH_ENGINES = [
@@ -106,34 +126,92 @@ class WebResearch:
         """搜索岗位信息 + 面经，生成结构化的岗位画像。
 
         指定 company 时追加公司定向查询（是否在招 / JD / 薪资）。
+        自动扩展同义岗位名称（如 AI应用开发工程师 → 大模型应用开发工程师），扩大召回。
         """
         company = (company or "").strip()
-        logger.info(f"开始搜索岗位信息: {position}" + (f" @ {company}" if company else ""))
+        synonyms = await self._expand_position_synonyms(position)
+        terms = [position] + synonyms
+        logger.info(f"开始搜索岗位信息: {position}" + (f" @ {company}" if company else "") + f"（含同义词 {len(synonyms)} 个）")
 
         if company:
             job_results, interview_results, cjob, civ = await asyncio.gather(
-                self._search_all("jobs", position),
-                self._search_all("interviews", position),
-                self._search_all("company_jobs", position, company),
-                self._search_all("company_interviews", position, company),
+                self._search_all("jobs", position, company, terms),
+                self._search_all("interviews", position, company, terms),
+                self._search_all("company_jobs", position, company, terms),
+                self._search_all("company_interviews", position, company, terms),
             )
             job_results = cjob + job_results
             interview_results = civ + interview_results
         else:
             job_results, interview_results = await asyncio.gather(
-                self._search_all("jobs", position),
-                self._search_all("interviews", position),
+                self._search_all("jobs", position, "", terms),
+                self._search_all("interviews", position, "", terms),
             )
 
-        profile = await self._generate_profile(position, company, job_results, interview_results)
+        profile = await self._generate_profile(position, company, synonyms, job_results, interview_results)
         return profile
 
-    async def _search_all(self, category: str, position: str, company: str = "") -> list[str]:
-        """并行搜索一类关键词（岗位要求 / 面经 / 公司定向）"""
+    async def _expand_position_synonyms(self, position: str) -> list[str]:
+        """生成岗位的同义名称：AI 生成（失败时规则兜底），最多 3 个"""
+        try:
+            prompt = (
+                f"岗位名称：{position}\n"
+                "请列出 3 个该岗位在招聘网站上常见的同义/相近岗位名称。"
+                "例如「AI应用开发工程师」可能叫「大模型应用开发工程师」「AI大模型应用开发工程师」「大模型工程师」。\n"
+                "只输出 JSON 数组，不要输出任何其他内容，例如：[\"大模型应用开发工程师\", \"AI大模型应用开发\", \"大模型工程师\"]"
+            )
+            result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=512)
+            if result:
+                text = result.strip()
+                if text.startswith("```"):
+                    text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
+                match = re.search(r'\[[\s\S]*\]', text)
+                arr = json.loads(match.group() if match else text)
+                if isinstance(arr, list):
+                    out = [str(s).strip() for s in arr if str(s).strip() and str(s).strip() != position][:3]
+                    if out:
+                        logger.info(f"岗位同义词: {position} -> {out}")
+                        return out
+        except Exception as e:
+            logger.warning(f"岗位同义词生成失败，使用规则兜底: {e}")
+        return self._fallback_synonyms(position)
+
+    def _fallback_synonyms(self, position: str) -> list[str]:
+        """规则兜底：基于 AI/大模型/LLM 关键词生成常见变体"""
+        p = position.strip()
+        base = re.sub(r'(开发)?工程师$', '', p).strip()
+        variants = []
+        lower = p.lower()
+        if any(k in lower for k in ('ai', '人工智能', '大模型', 'llm')):
+            if '大模型' not in p:
+                variants.append('大模型' + base + '开发')
+                variants.append('大模型应用开发工程师')
+            if 'ai' not in lower and '人工智能' not in p:
+                variants.append('AI' + base + '开发')
+                variants.append('AI应用开发工程师')
+        if not variants:
+            variants.append(base + '开发')
+        seen = set()
+        out = []
+        for v in variants:
+            v = v.strip()
+            if v and v != p and v not in seen:
+                seen.add(v)
+                out.append(v)
+        return out[:3]
+
+    async def _search_all(self, category: str, position: str, company: str = "", terms: list[str] | None = None) -> list[str]:
+        """并行搜索一类关键词（岗位要求 / 面经 / 公司定向），terms 为岗位同义词"""
         queries = [
             t.replace("{position}", position).replace("{company}", company)
             for t in SEARCH_SOURCES.get(category, [])
         ]
+        for term in (terms or [])[1:]:  # 第一个是原岗位名，跳过
+            queries.extend(
+                t.replace("{term}", term).replace("{company}", company)
+                for t in SYNONYM_SOURCES.get(category, [])
+            )
+        queries = queries[:10]  # 控制搜索量，避免过慢
         tasks = [self._search_with_fallback(q) for q in queries]
         results_list = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -210,6 +288,7 @@ class WebResearch:
         self,
         position: str,
         company: str,
+        synonyms: list[str],
         job_results: list[str],
         interview_results: list[str],
     ) -> dict:
@@ -227,18 +306,18 @@ class WebResearch:
                     break
             return out
 
-        prompt = self._build_profile_prompt(position, company, job_results, interview_results, clean)
+        prompt = self._build_profile_prompt(position, company, synonyms, job_results, interview_results, clean)
         result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=4096)
         profile = self._parse_profile_json(result, position, company)
         if profile is None:
             # 重试一次：去掉搜索摘要的紧凑提示词（提示词过大是空返回的常见原因）
             logger.warning("岗位画像 AI 返回异常，使用紧凑提示词重试")
-            compact = self._build_profile_prompt(position, company, [], [], clean)
+            compact = self._build_profile_prompt(position, company, synonyms, [], [], clean)
             result = await self.ai.reason([{"role": "user", "content": compact}], max_tokens=4096)
             profile = self._parse_profile_json(result, position, company)
         return profile if profile is not None else self._fallback_profile(position, company, result or "")
 
-    def _build_profile_prompt(self, position, company, job_results, interview_results, clean) -> str:
+    def _build_profile_prompt(self, position, company, synonyms, job_results, interview_results, clean) -> str:
         """构建岗位画像提示词（搜索摘要压缩 + 明确要求直接输出 JSON）"""
         hint = ""
         if company:
@@ -261,13 +340,15 @@ class WebResearch:
         else:
             company_section = "目标公司: 未指定（生成通用岗位画像）"
 
+        synonym_line = ("该岗位在招聘网站上可能有同义名称：" + "、".join(synonyms) + "。\n") if synonyms else ""
+
         return f"""你是一个资深的招聘专家和面试官。请为目标岗位生成详细的"岗位画像"。
 
 {company_section}
 
 目标岗位: {position}
 
-请基于你的专业知识回答，以下网络搜索结果仅供参考（可能为空）：{hint}
+{synonym_line}请基于你的专业知识回答，以下网络搜索结果仅供参考（可能为空）：{hint}
 
 不要输出任何解释或思考过程，直接输出 JSON 格式（必须包含以下所有字段）：
 
