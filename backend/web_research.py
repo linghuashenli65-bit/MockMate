@@ -214,13 +214,43 @@ class WebResearch:
         interview_results: list[str],
     ) -> dict:
         """用 AI 生成结构化岗位画像（搜索结果为参考，公司定向信息优先）"""
+        # 压缩搜索摘要：去重、截断，控制提示词规模（避免推理模型 token 耗尽导致空返回）
+        def clean(snippets, limit=8, max_len=180):
+            seen = set()
+            out = []
+            for s in snippets:
+                s = " ".join(s.split())[:max_len]
+                if s and s not in seen:
+                    seen.add(s)
+                    out.append(s)
+                if len(out) >= limit:
+                    break
+            return out
+
+        prompt = self._build_profile_prompt(position, company, job_results, interview_results, clean)
+        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=4096)
+        profile = self._parse_profile_json(result, position, company)
+        if profile is None:
+            # 重试一次：去掉搜索摘要的紧凑提示词（提示词过大是空返回的常见原因）
+            logger.warning("岗位画像 AI 返回异常，使用紧凑提示词重试")
+            compact = self._build_profile_prompt(position, company, [], [], clean)
+            result = await self.ai.reason([{"role": "user", "content": compact}], max_tokens=4096)
+            profile = self._parse_profile_json(result, position, company)
+        return profile if profile is not None else self._fallback_profile(position, company, result or "")
+
+    def _build_profile_prompt(self, position, company, job_results, interview_results, clean) -> str:
+        """构建岗位画像提示词（搜索摘要压缩 + 明确要求直接输出 JSON）"""
         hint = ""
         if company:
             hint += f"\n=== 目标公司: {company} ===\n"
-        if job_results:
-            hint += "\n=== 从招聘网站搜集到的岗位要求 ===\n" + "\n".join(job_results[:12])
-        if interview_results:
-            hint += "\n=== 从社区搜集到的面经信息 ===\n" + "\n".join(interview_results[:12])
+        job_snips = clean(job_results)
+        interview_snips = clean(interview_results)
+        if job_snips:
+            hint += "\n=== 从招聘网站搜集到的岗位要求 ===\n" + "\n".join(job_snips)
+        if interview_snips:
+            hint += "\n=== 从社区搜集到的面经信息 ===\n" + "\n".join(interview_snips)
+        if len(hint) > 4000:
+            hint = hint[:4000]
 
         if company:
             company_section = (
@@ -231,7 +261,7 @@ class WebResearch:
         else:
             company_section = "目标公司: 未指定（生成通用岗位画像）"
 
-        prompt = f"""你是一个资深的招聘专家和面试官。请为目标岗位生成详细的"岗位画像"。
+        return f"""你是一个资深的招聘专家和面试官。请为目标岗位生成详细的"岗位画像"。
 
 {company_section}
 
@@ -239,7 +269,7 @@ class WebResearch:
 
 请基于你的专业知识回答，以下网络搜索结果仅供参考（可能为空）：{hint}
 
-输出 JSON 格式（必须包含以下所有字段）：
+不要输出任何解释或思考过程，直接输出 JSON 格式（必须包含以下所有字段）：
 
 {{
   "position": "岗位名称",
@@ -270,17 +300,15 @@ class WebResearch:
 - interview_focus 写3-5个考察重点
 - 内容要具体、有参考价值，不要泛泛而谈"""
 
-        result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=4096)
+    def _parse_profile_json(self, result, position, company):
+        """解析 AI 返回的画像 JSON，失败返回 None"""
         if not result:
-            return self._fallback_profile(position, company)
-
-        # 尝试解析 JSON
+            return None
         result = result.strip()
         if result.startswith("```"):
             result = result.split("\n", 1)[-1]
             result = result.rsplit("```", 1)[0]
         result = result.strip()
-
         try:
             return json.loads(result)
         except json.JSONDecodeError:
@@ -290,7 +318,7 @@ class WebResearch:
                     return json.loads(match.group())
                 except json.JSONDecodeError:
                     pass
-            return self._fallback_profile(position, company, result)
+        return None
 
     def _fallback_profile(self, position: str, company: str = "", raw_text: str = "") -> dict:
         return {

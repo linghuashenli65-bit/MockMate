@@ -47,14 +47,16 @@ async function doResearch(refresh) {
     return
   }
   researching.value = true
+  prep.profile = null // 清掉旧画像，避免分析中显示过期内容
   try {
     const data = await api.post('/api/research', { position: pos, company: prep.company.trim(), refresh })
     prep.profile = data
     toast(refresh ? '重新分析完成' : '岗位分析完成')
   } catch (err) {
     toast('分析失败: ' + err.message)
+  } finally {
+    researching.value = false
   }
-  researching.value = false
 }
 
 /* ---------- 简历评分 ---------- */

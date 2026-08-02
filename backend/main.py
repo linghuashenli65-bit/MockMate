@@ -728,6 +728,9 @@ async def research_position(req: ResearchRequest, user_ai: AIClient = Depends(ge
     research = WebResearch(user_ai)
     try:
         profile = await research.search_position(position, company)
+        # 注入目标公司名（AI 输出可能不含，前端徽标依赖此字段）
+        if isinstance(profile, dict) and company:
+            profile["company"] = company
         # 只有生成了实质内容才缓存
         if profile.get("required_skills") or profile.get("common_interview_topics"):
             await db.cache_set(cache_key, profile)
