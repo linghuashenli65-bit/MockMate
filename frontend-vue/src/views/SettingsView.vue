@@ -73,10 +73,11 @@ async function clearKey(providerId) {
   }
 }
 
-async function saveProvider() {
+async function saveProvider(e) {
+  const provider = e.target.value
   try {
-    await settings.updateSettings({ provider: settings.server.provider })
-    toast('已切换到 ' + (PROVIDERS.find((p) => p.id === settings.server.provider)?.name || settings.server.provider))
+    await settings.updateSettings({ provider })
+    toast('已切换到 ' + (PROVIDERS.find((p) => p.id === provider)?.name || provider))
     window.dispatchEvent(new CustomEvent('mockmate-settings-changed'))
   } catch (e) {
     toast('切换失败: ' + e.message)
