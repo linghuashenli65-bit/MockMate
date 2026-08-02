@@ -2,6 +2,9 @@
 
 搜索招聘网站的岗位要求和社区平台的面经，
 生成结构化的岗位画像供面试引擎使用。
+
+支持「目标公司」定向搜索：当用户指定公司时，追加公司维度查询
+（是否在招 / JD / 薪资待遇 / 官网招聘），并在画像中输出公司专属信息。
 """
 import asyncio
 import json
@@ -17,7 +20,7 @@ from .ai_client import AIClient
 
 logger = logging.getLogger(__name__)
 
-# 搜索来源配置
+# 搜索来源配置：{position} 岗位维度，{company} 公司维度
 SEARCH_SOURCES = {
     "jobs": [
         "{position} 岗位要求 技能要求",
@@ -29,6 +32,17 @@ SEARCH_SOURCES = {
         "{position} 面试经验 知乎",
         "{position} 面试 贴吧",
         "{position} 面经 技术栈 面试问题",
+    ],
+    "company_jobs": [
+        "{company} {position} 招聘 岗位职责 薪资待遇",
+        "{company} {position} JD 任职要求 招聘公告",
+        "{company} {position} 2026 校招 社招 招聘",
+        "{company} 招聘 官网 {position} 岗位",
+    ],
+    "company_interviews": [
+        "{company} {position} 面经 面试经验",
+        "{company} {position} 面试 知乎",
+        "{company} {position} 薪资 待遇",
     ],
 }
 
@@ -42,6 +56,7 @@ SEARCH_ENGINES = [
         "param_field": "q",
         "result_selector": ".b_algo",
         "snippet_selector": ".b_caption p",
+        "url_selector": "h2 a",
     },
     {
         "name": "duckduckgo",
@@ -50,6 +65,7 @@ SEARCH_ENGINES = [
         "data_field": "q",
         "result_selector": ".result",
         "snippet_selector": ".result__snippet",
+        "url_selector": ".result__a",
     },
 ]
 
@@ -86,23 +102,36 @@ class WebResearch:
         self._user_agent_index = (self._user_agent_index + 1) % len(USER_AGENTS)
         self._http.headers["User-Agent"] = USER_AGENTS[self._user_agent_index]
 
-    async def search_position(self, position: str) -> dict:
-        """搜索岗位信息 + 面经，生成结构化的岗位画像。"""
-        logger.info(f"开始搜索岗位信息: {position}")
+    async def search_position(self, position: str, company: str = "") -> dict:
+        """搜索岗位信息 + 面经，生成结构化的岗位画像。
 
-        # 并行搜索岗位要求和面经
-        job_results, interview_results = await asyncio.gather(
-            self._search_all("jobs", position),
-            self._search_all("interviews", position),
-        )
+        指定 company 时追加公司定向查询（是否在招 / JD / 薪资）。
+        """
+        company = (company or "").strip()
+        logger.info(f"开始搜索岗位信息: {position}" + (f" @ {company}" if company else ""))
 
-        profile = await self._generate_profile(position, job_results, interview_results)
+        if company:
+            job_results, interview_results, cjob, civ = await asyncio.gather(
+                self._search_all("jobs", position),
+                self._search_all("interviews", position),
+                self._search_all("company_jobs", position, company),
+                self._search_all("company_interviews", position, company),
+            )
+            job_results = cjob + job_results
+            interview_results = civ + interview_results
+        else:
+            job_results, interview_results = await asyncio.gather(
+                self._search_all("jobs", position),
+                self._search_all("interviews", position),
+            )
+
+        profile = await self._generate_profile(position, company, job_results, interview_results)
         return profile
 
-    async def _search_all(self, category: str, position: str) -> list[str]:
-        """并行搜索一类关键词（岗位要求 / 面经）"""
+    async def _search_all(self, category: str, position: str, company: str = "") -> list[str]:
+        """并行搜索一类关键词（岗位要求 / 面经 / 公司定向）"""
         queries = [
-            t.replace("{position}", position)
+            t.replace("{position}", position).replace("{company}", company)
             for t in SEARCH_SOURCES.get(category, [])
         ]
         tasks = [self._search_with_fallback(q) for q in queries]
@@ -110,24 +139,27 @@ class WebResearch:
 
         results = []
         for q, r in zip(queries, results_list):
-            if isinstance(r, list):
+            if isinstance(r, tuple) and r[0]:
+                results.extend(r[0])
+                logger.info(f"  {category}搜索完成: {q} ({len(r[0])} 条)")
+            elif isinstance(r, list) and r:
                 results.extend(r)
                 logger.info(f"  {category}搜索完成: {q} ({len(r)} 条)")
             else:
                 logger.warning(f"  {category}搜索失败 [{q}]: {r}")
         return results
 
-    async def _search_with_fallback(self, query: str, max_results: int = 5) -> list[str]:
-        """多搜索引擎搜索，逐个尝试直到拿到结果"""
+    async def _search_with_fallback(self, query: str, max_results: int = 5):
+        """多搜索引擎搜索，逐个尝试直到拿到结果，返回 (snippets, urls)"""
         for engine in SEARCH_ENGINES:
-            snippets = await self._search_engine(engine, query, max_results)
+            snippets, urls = await self._search_engine(engine, query, max_results)
             if snippets:
-                return snippets
+                return snippets, urls
             logger.info(f"{engine['name']} 无结果，尝试下一个搜索引擎: {query}")
-        return []
+        return [], []
 
-    async def _search_engine(self, engine: dict, query: str, max_results: int) -> list[str]:
-        """使用指定搜索引擎搜索"""
+    async def _search_engine(self, engine: dict, query: str, max_results: int):
+        """使用指定搜索引擎搜索，返回 (snippets, urls)"""
         for attempt in range(MAX_RETRIES):
             self._rotate_user_agent()
             try:
@@ -144,9 +176,9 @@ class WebResearch:
                         timeout=HTTP_TIMEOUT,
                     )
                 logger.info(f"  {engine['name']} 返回状态码 {resp.status_code}")
-                snippets = self._parse_results(resp.text, engine, max_results)
+                snippets, urls = self._parse_results(resp.text, engine, max_results)
                 logger.info(f"  {engine['name']} 解析到 {len(snippets)} 条结果")
-                return snippets
+                return snippets, urls
             except httpx.TimeoutException:
                 logger.warning(f"  {engine['name']} 超时 (尝试 {attempt + 1}/{MAX_RETRIES}): {query}")
             except httpx.HTTPStatusError as e:
@@ -155,30 +187,53 @@ class WebResearch:
                 logger.warning(f"  {engine['name']} 错误: {e} (尝试 {attempt + 1}/{MAX_RETRIES})")
             if attempt < MAX_RETRIES - 1:
                 await asyncio.sleep(1)
-        return []
+        return [], []
 
-    def _parse_results(self, html: str, engine: dict, max_results: int) -> list[str]:
-        """从 HTML 中解析搜索结果"""
+    def _parse_results(self, html: str, engine: dict, max_results: int):
+        """从 HTML 中解析搜索结果，返回 (snippets, urls)"""
         soup = BeautifulSoup(html, "lxml")
         snippets = []
+        urls = []
         for result in soup.select(engine["result_selector"])[:max_results]:
             snippet_el = result.select_one(engine["snippet_selector"])
             if snippet_el:
                 text = snippet_el.get_text(strip=True)
                 if text:
                     snippets.append(text)
-        return snippets
+                    link = result.select_one(engine.get("url_selector", "a"))
+                    href = link.get("href") if link else None
+                    if href:
+                        urls.append(href)
+        return snippets, urls
 
-    async def _generate_profile(self, position: str, job_results: list[str], interview_results: list[str]) -> dict:
-        """用 AI 生成结构化岗位画像（主要依赖 AI 知识库，搜索结果为辅助）"""
-        # 如果搜索有结果，作为参考
+    async def _generate_profile(
+        self,
+        position: str,
+        company: str,
+        job_results: list[str],
+        interview_results: list[str],
+    ) -> dict:
+        """用 AI 生成结构化岗位画像（搜索结果为参考，公司定向信息优先）"""
         hint = ""
+        if company:
+            hint += f"\n=== 目标公司: {company} ===\n"
         if job_results:
-            hint += "\n=== 从招聘网站搜集到的岗位要求 ===\n" + "\n".join(job_results[:10])
+            hint += "\n=== 从招聘网站搜集到的岗位要求 ===\n" + "\n".join(job_results[:12])
         if interview_results:
-            hint += "\n=== 从社区搜集到的面经信息 ===\n" + "\n".join(interview_results[:10])
+            hint += "\n=== 从社区搜集到的面经信息 ===\n" + "\n".join(interview_results[:12])
+
+        if company:
+            company_section = (
+                f"目标公司: {company}\n"
+                "请优先基于与该目标公司相关的搜索结果判断该公司该岗位的招聘情况、薪酬待遇和任职要求。\n"
+                "如果搜索结果中没有该公司的专属信息，请在 hiring_status / salary_range / company_insights 中如实标注'未查到该公司专属信息'，不要编造。"
+            )
+        else:
+            company_section = "目标公司: 未指定（生成通用岗位画像）"
 
         prompt = f"""你是一个资深的招聘专家和面试官。请为目标岗位生成详细的"岗位画像"。
+
+{company_section}
 
 目标岗位: {position}
 
@@ -201,7 +256,11 @@ class WebResearch:
   "interview_focus": ["面试重点考察方向1", ...],
   "difficulty": "junior/mid/senior",
   "years_experience": "X年经验",
-  "industry_insights": "该岗位的市场趋势和薪资概况"
+  "industry_insights": "该岗位的市场趋势和薪资概况",
+  "hiring_status": "是否在招（在招/未查到在招信息/无法确认，基于搜索结果判断）",
+  "salary_range": "薪酬范围（例如 25k-40k·13薪，优先用目标公司相关搜索结果，否则给市场概况并注明）",
+  "company_insights": "目标公司该岗位的招聘特点、面试风格或要求（未指定公司时留空）",
+  "sources": ["参考来源链接或页面描述，最多5条"]
 }}
 
 要求：
@@ -213,7 +272,7 @@ class WebResearch:
 
         result = await self.ai.reason([{"role": "user", "content": prompt}], max_tokens=4096)
         if not result:
-            return self._fallback_profile(position)
+            return self._fallback_profile(position, company)
 
         # 尝试解析 JSON
         result = result.strip()
@@ -231,11 +290,12 @@ class WebResearch:
                     return json.loads(match.group())
                 except json.JSONDecodeError:
                     pass
-            return self._fallback_profile(position, result)
+            return self._fallback_profile(position, company, result)
 
-    def _fallback_profile(self, position: str, raw_text: str = "") -> dict:
+    def _fallback_profile(self, position: str, company: str = "", raw_text: str = "") -> dict:
         return {
             "position": position,
+            "company": company,
             "summary": "基于 AI 知识库生成的岗位画像（网络搜索未返回有效数据）",
             "required_skills": [],
             "nice_to_have": [],
@@ -246,6 +306,10 @@ class WebResearch:
             "difficulty": "mid",
             "years_experience": "1-3年",
             "industry_insights": "",
+            "hiring_status": "无法确认",
+            "salary_range": "",
+            "company_insights": "",
+            "sources": [],
             "_raw": raw_text[:500] if raw_text else "",
         }
 

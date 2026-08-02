@@ -48,7 +48,7 @@ async function doResearch(refresh) {
   }
   researching.value = true
   try {
-    const data = await api.post('/api/research', { position: pos, refresh })
+    const data = await api.post('/api/research', { position: pos, company: prep.company.trim(), refresh })
     prep.profile = data
     toast(refresh ? '重新分析完成' : '岗位分析完成')
   } catch (err) {
@@ -189,7 +189,15 @@ function goMock() {
       </div>
       <div v-if="prep.profile" style="background: var(--surface2); border-radius: var(--radius); padding: 16px; margin-top: 8px">
         <div style="font-weight: 600; font-size: 16px; margin-bottom: 8px">{{ prep.profile.position || prep.position }}</div>
+        <div v-if="prep.profile.company" style="margin-bottom: 6px">
+          <span class="skill-tag" style="background: var(--accent)">🏢 {{ prep.profile.company }}</span>
+        </div>
+        <div v-if="prep.profile.hiring_status || prep.profile.salary_range" style="display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px">
+          <span v-if="prep.profile.hiring_status" class="score-tag">招聘状态：{{ prep.profile.hiring_status }}</span>
+          <span v-if="prep.profile.salary_range" class="score-tag">薪酬：{{ prep.profile.salary_range }}</span>
+        </div>
         <div v-if="prep.profile.summary" class="markdown-body" style="font-size: 13px; color: var(--text2); margin-bottom: 8px" v-html="md(prep.profile.summary)"></div>
+        <div v-if="prep.profile.company_insights" class="markdown-body" style="font-size: 13px; color: var(--text); margin-bottom: 8px; padding: 8px 10px; background: var(--surface); border-left: 3px solid var(--accent); border-radius: 6px" v-html="md(prep.profile.company_insights)"></div>
         <div v-if="prep.profile.required_skills && prep.profile.required_skills.length" style="margin-bottom: 6px">
           <strong style="font-size: 13px">必备技能：</strong><br>
           <span v-for="s in prep.profile.required_skills" :key="s" class="skill-tag">{{ s }}</span>
@@ -218,6 +226,10 @@ function goMock() {
           <template v-if="prep.profile.years_experience">经验要求：{{ prep.profile.years_experience }}</template>
         </div>
         <div v-if="prep.profile.industry_insights" class="markdown-body" style="font-size: 12px; color: var(--text2); margin-top: 6px; padding: 8px; background: var(--surface); border-radius: 6px" v-html="md(prep.profile.industry_insights)"></div>
+        <div v-if="prep.profile.sources && prep.profile.sources.length" style="font-size: 12px; color: var(--text2); margin-top: 8px">
+          <strong>参考来源：</strong>
+          <span v-for="(s, i) in prep.profile.sources.slice(0, 5)" :key="i" style="display: block; margin-top: 2px">{{ s }}</span>
+        </div>
         <div style="margin-top: 8px"><button class="btn btn-secondary btn-sm" :disabled="researching" @click="doResearch(true)">重新分析</button></div>
       </div>
     </div>

@@ -232,8 +232,10 @@ export function startStream(options) {
   }
 
   function doStart() {
+    const authToken = localStorage.getItem('mockmate_auth_token') || ''
     const wsUrl = (location.protocol === 'https:' ? 'wss:' : 'ws:')
       + '//' + location.host + '/api/asr/stream?vad=true&fmt=pcm'
+      + (authToken ? '&token=' + encodeURIComponent(authToken) : '')
     try {
       ws = new WebSocket(wsUrl)
     } catch (err) {

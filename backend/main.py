@@ -41,7 +41,7 @@ from .mail import create_mailer, send_verification_email
 from .auth import (
     create_access_token, generate_code, save_code, verify_code,
     create_user, authenticate_user, get_user_by_id, email_exists,
-    get_current_user, get_current_user_optional, init_user_tables,
+    get_current_user, get_current_user_optional, decode_access_token, init_user_tables,
 )
 from .mock_interview.interviewer_config import InterviewerConfig, InterviewerManager
 from .mock_interview.api_router import MockInterviewRouter
@@ -246,6 +246,7 @@ class LoginRequest(BaseModel):
 
 class ResearchRequest(BaseModel):
     position: str
+    company: str = ""
     refresh: bool = False
 
 class ResumeText(BaseModel):
@@ -710,23 +711,26 @@ async def score_resume(req: ResumeScoreRequest, user_ai: AIClient = Depends(get_
 async def research_position(req: ResearchRequest, user_ai: AIClient = Depends(get_user_ai),
                             current_user: dict = Depends(get_current_user)):
     position = req.position.strip()
+    company = (req.company or "").strip()
     if not position:
         raise HTTPException(400, "请输入目标岗位")
+    # 缓存键：岗位 + 公司（避免不同公司的画像互相污染）
+    cache_key = f"{position}@{company}" if company else position
 
     # 查缓存（除非指定 refresh=true）
     if not req.refresh:
-        cached = await db.cache_get(position)
+        cached = await db.cache_get(cache_key)
         if cached:
-            logger.info(f"缓存命中: {position}")
+            logger.info(f"缓存命中: {cache_key}")
             return cached
 
-    logger.info(f"全网搜索: {position}")
+    logger.info(f"全网搜索: {cache_key}")
     research = WebResearch(user_ai)
     try:
-        profile = await research.search_position(position)
+        profile = await research.search_position(position, company)
         # 只有生成了实质内容才缓存
         if profile.get("required_skills") or profile.get("common_interview_topics"):
-            await db.cache_set(position, profile)
+            await db.cache_set(cache_key, profile)
             # 记录搜索历史（关联 user_id）
             await db.save_search_history(position, profile, user_id=current_user["id"])
         return profile
@@ -1634,9 +1638,9 @@ def _make_wav_header(data_size: int, sample_rate: int = 16000) -> bytes:
 async def asr_stream_ws(
     websocket: WebSocket,
     api_key: str = Query(""),
+    token: str = Query(""),
     vad: bool = Query(False),
     fmt: str = Query("pcm"),
-    current_user: Optional[dict] = Depends(get_current_user_optional),
 ):
     """实时语音识别 WebSocket — 边说边出字
 
@@ -1659,11 +1663,18 @@ async def asr_stream_ws(
     await websocket.accept()
 
     key = api_key
-    if not key and current_user:
-        # 新前端：优先使用登录用户服务端设置的 Qwen Key
-        user_settings = await db.get_user_settings(current_user["id"])
-        if user_settings:
-            key = decrypt_key((user_settings.get("keys", {}) or {}).get("qwen", ""))
+    if not key and token:
+        # 新前端：JWT token 从查询参数传入（WebSocket 无法使用 HTTPBearer 依赖）
+        payload = decode_access_token(token)
+        if payload:
+            try:
+                uid = int(payload.get("sub", 0))
+            except (TypeError, ValueError):
+                uid = 0
+            if uid:
+                user_settings = await db.get_user_settings(uid)
+                if user_settings:
+                    key = decrypt_key((user_settings.get("keys", {}) or {}).get("qwen", ""))
     if not key:
         key = QWEN_API_KEY
     if not key or key == "your-api-key-here":

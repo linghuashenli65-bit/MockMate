@@ -184,6 +184,14 @@ InputGuard → OutputGuard → StateVerifier → MemoryGuard
 #### `POST /api/research`
 全网搜索目标岗位的招聘要求和面经，生成结构化岗位画像。结果缓存 90 天。
 
+支持 `company` 字段（目标公司定向查询）：
+
+```json
+{ "position": "Python后端开发", "company": "字节跳动", "refresh": false }
+```
+
+指定公司时追加公司维度搜索（招聘 JD / 薪资待遇 / 官网招聘 / 面经），画像额外输出 `hiring_status`（招聘状态）、`salary_range`（薪酬范围）、`company_insights`（公司洞察）、`sources`（参考来源）；缓存按「岗位@公司」隔离。未查到该公司专属信息时如实降级为市场概况，不编造。
+
 ### 传统面试
 
 | 方法 | 路径 | 说明 |
